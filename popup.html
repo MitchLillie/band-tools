@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Band Tools</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="app">
+    <div id="header">
+      <span id="band-info">Band Tools</span>
+      <a href="#" id="options-link" title="Settings">⚙</a>
+    </div>
+
+    <div id="auth-error" class="hidden">
+      <p>Not logged in. <a href="https://www.band.us" target="_blank">Log in to band.us</a> first.</p>
+    </div>
+
+    <nav id="tabs">
+      <button class="tab-btn active" data-tab="week">My Events</button>
+      <button class="tab-btn" data-tab="rsvp">RSVP</button>
+      <button class="tab-btn" data-tab="sync">Sync Group</button>
+    </nav>
+
+    <!-- Tab: My Events -->
+    <div id="tab-week" class="tab-panel">
+      <div class="top-bar">
+        <p class="tab-desc">Next <input type="number" id="week-days" value="7" min="1" max="365"> days</p>
+        <div class="top-bar-right">
+          <select id="week-calendar"><option value="">All calendars</option></select>
+          <button id="week-copy" title="Copy as text">⎘</button>
+        </div>
+      </div>
+      <div id="week-results" class="results"><p class="msg">Loading…</p></div>
+    </div>
+
+    <!-- Tab: RSVP Status -->
+    <div id="tab-rsvp" class="tab-panel hidden">
+      <p class="tab-desc">See who hasn't responded to an event.</p>
+      <div class="controls">
+        <label class="full-width">Event URL or schedule ID
+          <input type="text" id="rsvp-event" placeholder="https://band.us/band/.../schedule/...">
+        </label>
+        <button id="rsvp-load">Check</button>
+      </div>
+      <div id="rsvp-results" class="results"></div>
+    </div>
+
+    <!-- Tab: Sync Group -->
+    <div id="tab-sync" class="tab-panel hidden">
+      <p class="tab-desc">Invite new group members to upcoming events.</p>
+      <div class="controls">
+        <label>Calendar
+          <select id="sync-calendar"><option value="">— load —</option></select>
+        </label>
+        <label>Group
+          <select id="sync-group"><option value="">— load —</option></select>
+        </label>
+        <label>Days<input type="number" id="sync-days" value="120" min="1" max="730"></label>
+        <div class="btn-row">
+          <button id="sync-dry">Dry Run</button>
+          <button id="sync-apply" class="danger hidden">Apply</button>
+        </div>
+      </div>
+      <div id="sync-results" class="results"></div>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
