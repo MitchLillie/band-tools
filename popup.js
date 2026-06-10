@@ -1,6 +1,6 @@
 'use strict';
 
-const WEEK_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const WEEK_CACHE_TTL_MS = 5 * 60 * 1000;
 
 // ---- Messaging ----
 
@@ -24,10 +24,6 @@ function loadSettings() {
   }, r));
 }
 
-function saveSettings(obj) {
-  return new Promise(r => chrome.storage.sync.set(obj, r));
-}
-
 // ---- Tab switching ----
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -40,6 +36,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 });
 
 // ---- Options link ----
+
 document.getElementById('options-link').addEventListener('click', e => {
   e.preventDefault();
   chrome.runtime.openOptionsPage();
@@ -56,6 +53,14 @@ function fmtDate(isoStr) {
     const d = new Date(isoStr);
     return `${d.getMonth()+1}/${d.getDate()}`;
   } catch (_) { return isoStr?.slice(0, 10) || ''; }
+}
+
+function escHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 async function detectBandNo() {
@@ -77,6 +82,7 @@ async function detectBandNo() {
 
 let currentBandNo = null;
 let currentMeUserNo = null;
+let currentMeName = null;
 
 async function init() {
   try {
@@ -84,55 +90,53 @@ async function init() {
     hide(document.getElementById('auth-error'));
   } catch (_) {
     show(document.getElementById('auth-error'));
+    return;
   }
 
   const settings = await loadSettings();
   currentBandNo = Number(await detectBandNo() || settings.default_band || 0) || null;
 
-  // Read auto-detected user_no from session, fall back to saved setting
-  let localMe = await new Promise(r => chrome.storage.local.get('me_user_no', r));
+  let localMe = await new Promise(r => chrome.storage.local.get(['me_user_no', 'me_name'], r));
   if (!localMe.me_user_no && currentBandNo) {
-    // Not cached yet — detect now
     try {
       const result = await send({ type: 'detect_me', band_no: currentBandNo });
-      if (result?.user_no) localMe = { me_user_no: result.user_no };
+      if (result?.user_no) localMe = { me_user_no: result.user_no, me_name: result.name };
     } catch (_) {}
   }
   currentMeUserNo = localMe.me_user_no || null;
+  currentMeName   = localMe.me_name   || null;
 
-  const bandLabel = currentBandNo ? `Band ${currentBandNo}` : 'Band Tools';
-  document.getElementById('band-info').textContent = bandLabel;
-
+  document.getElementById('band-info').textContent = currentBandNo ? `Band ${currentBandNo}` : 'Band Tools';
   document.getElementById('week-days').value = settings.week_days;
   document.getElementById('sync-days').value = settings.sync_days;
 
-  if (currentBandNo) {
-    await populateWeekCalendarDropdown(currentBandNo, settings.default_calendar);
-    populateSyncDropdowns(currentBandNo, settings.default_calendar, settings.default_group);
-    loadWeek();
-  } else {
+  if (!currentBandNo) {
     setHtml(document.getElementById('week-results'),
       '<p class="err">No band configured. <a href="#" id="go-settings">Open Settings</a> to set your band number.</p>');
     document.getElementById('go-settings')?.addEventListener('click', e => {
       e.preventDefault(); chrome.runtime.openOptionsPage();
     });
+    return;
   }
 
-  // Auto-fill RSVP schedule_id from active tab URL
+  // Check admin and show Admin tab if applicable
+  let isAdmin = false;
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.url?.includes('/schedule/')) {
-      const m = tab.url.match(/\/schedule\/(.+)$/);
-      if (m) document.getElementById('rsvp-event').value = decodeURIComponent(m[1]);
-    }
+    isAdmin = await send({ type: 'check_admin', band_no: currentBandNo });
   } catch (_) {}
+
+  if (isAdmin) {
+    show(document.getElementById('tabs'));
+    populateSyncDropdowns(currentBandNo, settings.default_calendar, settings.default_group);
+  }
+
+  await populateWeekCalendarDropdown(currentBandNo, settings.default_calendar);
+  loadWeek();
 }
 
 init();
 
-// ---- Band Week ----
-
-let weekItems = [];
+// ---- Calendar dropdown ----
 
 async function populateWeekCalendarDropdown(band_no, defaultCal) {
   const sel = document.getElementById('week-calendar');
@@ -142,13 +146,17 @@ async function populateWeekCalendarDropdown(band_no, defaultCal) {
     sel.innerHTML = '<option value="">All calendars</option>' + cals.map(c => {
       const id = c.calendar_id ?? '';
       const name = c.name || (c.is_default ? 'Default' : `Calendar ${id}`);
-      const sel2 = String(id) === String(defaultCal) ? ' selected' : '';
-      return `<option value="${id}"${sel2}>${escHtml(name)}</option>`;
+      const selected = String(id) === String(defaultCal) ? ' selected' : '';
+      return `<option value="${id}"${selected}>${escHtml(name)}</option>`;
     }).join('');
   } catch (_) {}
 }
 
 document.getElementById('week-calendar').addEventListener('change', () => loadWeek(true));
+
+// ---- Event list ----
+
+let weekItems = [];
 
 async function loadWeek(forceRefresh = false) {
   const resultsEl = document.getElementById('week-results');
@@ -158,7 +166,6 @@ async function loadWeek(forceRefresh = false) {
 
   if (!currentBandNo) return;
 
-  // Check cache
   if (!forceRefresh) {
     try {
       const cached = await new Promise(r => chrome.storage.session.get('week_cache', r));
@@ -176,7 +183,9 @@ async function loadWeek(forceRefresh = false) {
 
   setHtml(resultsEl, '<p class="msg">Loading…</p>');
   try {
-    const items = await send({ type: 'band_week', band_no: currentBandNo, days, calendar_id });
+    const items = await send({ type: 'band_week', band_no: currentBandNo, days, calendar_id, me_name: currentMeName });
+    // Merge any cached RSVP statuses we learned from previous expands this session
+    await mergeRsvpCache(items);
     weekItems = items;
     chrome.storage.session.set({ week_cache: { ts: Date.now(), items, band_no: currentBandNo, calendar_id, days } });
     renderWeek(resultsEl, items);
@@ -185,18 +194,196 @@ async function loadWeek(forceRefresh = false) {
   }
 }
 
+const RSVP_ACTIVE_CLASS = { 1: 'active-going', 2: 'active-not-going', 3: 'active-maybe' };
+
+// ---- RSVP status session cache ----
+// Keyed by schedule_id; persists across popup close/reopen within the same Chrome session.
+
+async function saveRsvpStatus(schedule_id, status) {
+  try {
+    const { rsvp_status_cache: cur } = await new Promise(r =>
+      chrome.storage.session.get('rsvp_status_cache', r));
+    const next = { ...(cur || {}), [schedule_id]: status };
+    chrome.storage.session.set({ rsvp_status_cache: next });
+  } catch (_) {}
+}
+
+async function mergeRsvpCache(items) {
+  try {
+    const { rsvp_status_cache: cache } = await new Promise(r =>
+      chrome.storage.session.get('rsvp_status_cache', r));
+    if (!cache) return;
+    for (const ev of items) {
+      if (ev.my_rsvp == null && ev.schedule_id && cache[ev.schedule_id] != null)
+        ev.my_rsvp = cache[ev.schedule_id];
+    }
+  } catch (_) {}
+}
+
 function renderWeek(el, items) {
   if (!items.length) {
     setHtml(el, '<p class="msg">No events in this period.</p>');
     return;
   }
-  setHtml(el, items.map(ev => {
+
+  el.innerHTML = items.map((ev, i) => {
     const safeUrl = ev.url.startsWith('https://') ? ev.url : '#';
-    return `<div class="event-item">
-      <div class="event-when">${ev.when}</div>
-      <a href="${safeUrl}" target="_blank" rel="noopener">${escHtml(ev.name)}</a>
-    </div>`;
-  }).join(''));
+    const rsvpRow = ev.rsvp_enabled ? `
+      <div class="event-rsvp">
+        <button class="rsvp-btn ${ev.my_rsvp === 1 ? 'active-going' : ''}" data-idx="${i}" data-status="1">Going</button>
+        <button class="rsvp-btn ${ev.my_rsvp === 2 ? 'active-not-going' : ''}" data-idx="${i}" data-status="2">Not Going</button>
+        ${ev.maybe_enabled ? `<button class="rsvp-btn ${ev.my_rsvp === 3 ? 'active-maybe' : ''}" data-idx="${i}" data-status="3">Maybe</button>` : ''}
+      </div>` : '';
+    return `
+      <div class="event-item">
+        <div class="event-header">
+          <span class="event-when">${escHtml(ev.when)}</span>
+          <a href="${safeUrl}" target="_blank" rel="noopener" class="event-name">${escHtml(ev.name)}</a>
+          <button class="btn-expand" data-idx="${i}" title="Show RSVP details">›</button>
+        </div>
+        ${rsvpRow}
+        <div class="event-detail hidden" data-idx="${i}"></div>
+      </div>`;
+  }).join('');
+
+  el.querySelectorAll('.btn-expand').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.dataset.idx);
+      const detailEl = el.querySelector(`.event-detail[data-idx="${idx}"]`);
+      const expanded = btn.classList.contains('expanded');
+      if (expanded) {
+        btn.classList.remove('expanded');
+        hide(detailEl);
+      } else {
+        btn.classList.add('expanded');
+        loadEventDetail(idx, detailEl);
+      }
+    });
+  });
+
+  el.querySelectorAll('.rsvp-btn').forEach(btn => {
+    btn.addEventListener('click', () => handleRsvpClick(btn, Number(btn.dataset.idx), Number(btn.dataset.status)));
+  });
+}
+
+async function loadEventDetail(idx, detailEl) {
+  const ev = weekItems[idx];
+  if (!ev) return;
+
+  // Only load once per open
+  if (detailEl.dataset.loaded === 'true') {
+    show(detailEl);
+    return;
+  }
+
+  const bandNo = ev.band_no || currentBandNo;
+  const scheduleId = ev.schedule_id;
+  if (!scheduleId) {
+    setHtml(detailEl, '<p class="msg detail-msg">Event ID unavailable.</p>');
+    show(detailEl);
+    return;
+  }
+
+  setHtml(detailEl, '<p class="msg detail-msg">Loading…</p>');
+  show(detailEl);
+
+  try {
+    const data = await send({ type: 'rsvp_status', band_no: bandNo, schedule_id: scheduleId, me_name: currentMeName });
+    renderEventDetail(detailEl, data);
+    detailEl.dataset.loaded = 'true';
+    // Backfill RSVP button highlight if we just learned the user's status
+    if (data.my_rsvp != null && weekItems[idx]?.my_rsvp == null) {
+      weekItems[idx] = { ...weekItems[idx], my_rsvp: data.my_rsvp };
+      updateRsvpButtonState(idx, data.my_rsvp);
+      saveRsvpStatus(ev.schedule_id, data.my_rsvp);
+    }
+  } catch (err) {
+    setHtml(detailEl, `<p class="err detail-msg">${escHtml(err.message)}</p>`);
+  }
+}
+
+function nameChips(names, chipClass = '') {
+  return names.map(n => `<span class="name-chip ${chipClass}">${escHtml(n)}</span>`).join('');
+}
+
+function renderEventDetail(el, d) {
+  const hasInviteList = d.total_invited > 0;
+  const sections = [];
+
+  if (d.going?.length)
+    sections.push(`<div class="names-section">
+      <div class="names-label going-label">Going (${d.going.length})</div>
+      <div class="names-list">${nameChips(d.going, 'chip-going')}</div>
+    </div>`);
+
+  if (d.not_going?.length)
+    sections.push(`<div class="names-section">
+      <div class="names-label not-going-label">Not Going (${d.not_going.length})</div>
+      <div class="names-list">${nameChips(d.not_going, 'chip-not-going')}</div>
+    </div>`);
+
+  if (d.maybe?.length)
+    sections.push(`<div class="names-section">
+      <div class="names-label maybe-label">Maybe (${d.maybe.length})</div>
+      <div class="names-list">${nameChips(d.maybe, 'chip-maybe')}</div>
+    </div>`);
+
+  if (hasInviteList && d.not_responded?.length)
+    sections.push(`<div class="names-section">
+      <div class="names-label no-resp-label">No Response (${d.not_responded.length})</div>
+      <div class="names-list">${nameChips(d.not_responded.map(u => u.name))}</div>
+    </div>`);
+
+  if (!sections.length)
+    sections.push('<p class="detail-msg">No RSVP responses yet.</p>');
+
+  setHtml(el, sections.join(''));
+}
+
+function updateRsvpButtonState(idx, status) {
+  const resultsEl = document.getElementById('week-results');
+  if (!resultsEl) return;
+  resultsEl.querySelectorAll(`.rsvp-btn[data-idx="${idx}"]`).forEach(b =>
+    b.classList.remove('active-going', 'active-not-going', 'active-maybe'));
+  if (status && RSVP_ACTIVE_CLASS[status]) {
+    resultsEl.querySelector(`.rsvp-btn[data-idx="${idx}"][data-status="${status}"]`)
+      ?.classList.add(RSVP_ACTIVE_CLASS[status]);
+  }
+}
+
+async function handleRsvpClick(btn, idx, newStatus) {
+  const ev = weekItems[idx];
+  if (!ev) return;
+
+  const bandNo = ev.band_no || currentBandNo;
+  const scheduleId = ev.schedule_id;
+  if (!scheduleId) { alert('Cannot update RSVP: event ID unavailable.'); return; }
+
+  const rsvpRow = btn.closest('.event-rsvp');
+  const prevStatus = ev.my_rsvp;
+
+  // Optimistic update
+  rsvpRow.querySelectorAll('.rsvp-btn').forEach(b =>
+    b.classList.remove('active-going', 'active-not-going', 'active-maybe'));
+  btn.classList.add(RSVP_ACTIVE_CLASS[newStatus]);
+  weekItems[idx] = { ...ev, my_rsvp: newStatus };
+
+  try {
+    await send({ type: 'update_rsvp', band_no: bandNo, schedule_id: scheduleId, rsvp_type: newStatus, me_user_no: currentMeUserNo });
+    saveRsvpStatus(scheduleId, newStatus);
+    // Invalidate cached detail so it reloads with updated counts
+    const resultsEl = document.getElementById('week-results');
+    const detailEl = resultsEl?.querySelector(`.event-detail[data-idx="${idx}"]`);
+    if (detailEl) detailEl.dataset.loaded = '';
+  } catch (err) {
+    // Revert
+    weekItems[idx] = ev;
+    rsvpRow.querySelectorAll('.rsvp-btn').forEach(b =>
+      b.classList.remove('active-going', 'active-not-going', 'active-maybe'));
+    if (prevStatus && RSVP_ACTIVE_CLASS[prevStatus])
+      rsvpRow.querySelector(`[data-status="${prevStatus}"]`)?.classList.add(RSVP_ACTIVE_CLASS[prevStatus]);
+    alert(`RSVP update failed: ${err.message}`);
+  }
 }
 
 // Re-load when days input changes (debounced)
@@ -206,7 +393,7 @@ document.getElementById('week-days').addEventListener('input', () => {
   weekDebounce = setTimeout(() => loadWeek(true), 600);
 });
 
-// Copy as plain text (same format as CLI)
+// Copy as plain text
 document.getElementById('week-copy').addEventListener('click', async () => {
   if (!weekItems.length) return;
   const text = weekItems.map(ev => `${ev.when} - ${ev.name} - ${ev.url}`).join('\n');
@@ -217,65 +404,7 @@ document.getElementById('week-copy').addEventListener('click', async () => {
   setTimeout(() => { btn.classList.remove('copied'); btn.textContent = '⎘'; }, 1500);
 });
 
-// ---- RSVP Status ----
-
-document.getElementById('rsvp-load').addEventListener('click', async () => {
-  const raw = document.getElementById('rsvp-event').value.trim();
-  const resultsEl = document.getElementById('rsvp-results');
-
-  if (!currentBandNo) {
-    setHtml(resultsEl, '<p class="err">No band configured in settings.</p>');
-    return;
-  }
-  if (!raw) {
-    setHtml(resultsEl, '<p class="err">Enter an event URL or schedule ID.</p>');
-    return;
-  }
-
-  let schedule_id = raw;
-  const urlMatch = raw.match(/\/schedule\/(.+)$/);
-  if (urlMatch) schedule_id = decodeURIComponent(urlMatch[1]);
-
-  // Extract band_no from URL if present (event may be on a different band)
-  const bandMatch = raw.match(/\/band\/(\d+)/);
-  const band_no = bandMatch ? Number(bandMatch[1]) : currentBandNo;
-
-  setHtml(resultsEl, '<p class="msg">Loading…</p>');
-  try {
-    const data = await send({ type: 'rsvp_status', band_no, schedule_id });
-    renderRsvp(resultsEl, data);
-  } catch (err) {
-    setHtml(resultsEl, `<p class="err">${escHtml(err.message)}</p>`);
-  }
-});
-
-function renderRsvp(el, d) {
-  const notNames = d.not_responded.map(u => `<span class="name-chip">${escHtml(u.name)}</span>`).join('');
-  const respondedNames = d.responded.map(u => `<span class="name-chip responded">${escHtml(u.name)}</span>`).join('');
-  setHtml(el, `
-    <div class="event-item">
-      <strong>${escHtml(d.event_name)}</strong>
-      <div class="event-when">${fmtDate(d.start_at)}</div>
-    </div>
-    <div class="stat-row">
-      <div class="stat"><div class="stat-num">${d.total_invited}</div><div class="stat-label">Invited</div></div>
-      <div class="stat"><div class="stat-num" style="color:#1e7e34">${d.attendee_count}</div><div class="stat-label">Going</div></div>
-      <div class="stat"><div class="stat-num" style="color:#d93025">${d.absentee_count}</div><div class="stat-label">Not Going</div></div>
-      <div class="stat"><div class="stat-num" style="color:#f59c00">${d.maybe_count}</div><div class="stat-label">Maybe</div></div>
-      <div class="stat"><div class="stat-num" style="color:#aaa">${d.not_responded.length}</div><div class="stat-label">No Response</div></div>
-    </div>
-    ${d.not_responded.length ? `
-      <div><strong>No response (${d.not_responded.length}):</strong>
-        <div class="names-list">${notNames || '—'}</div>
-      </div>` : ''}
-    ${d.responded.length ? `
-      <div style="margin-top:8px"><strong>Responded (${d.responded.length}):</strong>
-        <div class="names-list">${respondedNames}</div>
-      </div>` : ''}
-  `);
-}
-
-// ---- Sync Group ----
+// ---- Sync Group (Admin tab) ----
 
 let syncDryRunResult = null;
 
@@ -355,14 +484,13 @@ document.getElementById('sync-apply').addEventListener('click', async () => {
   if (!confirm('Apply changes? This will update all affected events on band.us.')) return;
 
   const { calendar_id, group_id, days } = syncDryRunResult;
-  const notify = true;
   const resultsEl = document.getElementById('sync-results');
   const applyBtn = document.getElementById('sync-apply');
 
   hide(applyBtn);
   setHtml(resultsEl, '<p class="msg">Applying changes…</p>');
   try {
-    const result = await send({ type: 'sync_group_apply', band_no: currentBandNo, calendar_id, group_id, days, me_user_no: currentMeUserNo, notify });
+    const result = await send({ type: 'sync_group_apply', band_no: currentBandNo, calendar_id, group_id, days, me_user_no: currentMeUserNo, notify: true });
     setHtml(resultsEl, `<p class="ok">Done! Updated ${result.applied_count} event(s).</p>`);
     syncDryRunResult = null;
   } catch (err) {
@@ -370,13 +498,3 @@ document.getElementById('sync-apply').addEventListener('click', async () => {
     show(applyBtn);
   }
 });
-
-// ---- Helpers ----
-
-function escHtml(str) {
-  return String(str || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}

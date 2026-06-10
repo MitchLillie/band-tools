@@ -190,44 +190,68 @@ function stripSource(src) {
 
 // ---- Features ----
 
-async function bandWeek(band_no, days = 7, calendar_id = null) {
+async function bandWeek(band_no, days = 7, calendar_id = null, me_name = null) {
   const cals = calendar_id ? [{ is_default: false, calendar_id }] : [{ is_default: true }];
   const data = await getSchedules(band_no, today(), addDays(days), cals);
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() + days);
+  const STATE_MAP = { ATTENDANCE: 1, ABSENCE: 2, MAYBE: 3 };
   return (data.items || [])
     .sort((a, b) => a.start_at.localeCompare(b.start_at))
     .filter(ev => { try { return new Date(ev.start_at) <= cutoff; } catch (_) { return false; } })
-    .map(ev => ({ when: fmtLocal(ev.start_at), name: ev.name, url: scheduleUrl(ev), start_at: ev.start_at }));
+    .map(ev => {
+      const r = ev.rsvp || null;
+      const my_rsvp = r ? (STATE_MAP[r.viewer_rsvp_state] ?? null) : null;
+      return {
+        when:          fmtLocal(ev.start_at),
+        name:          ev.name,
+        url:           scheduleUrl(ev),
+        start_at:      ev.start_at,
+        schedule_id:   ev.schedule_id,
+        band_no:       ev.band_no || band_no,
+        rsvp_enabled:  r != null,
+        maybe_enabled: r ? r.is_maybe_enabled !== false : false,
+        my_rsvp,
+      };
+    });
 }
 
-async function rsvpStatus(band_no, schedule_id) {
+async function rsvpStatus(band_no, schedule_id, me_name = null) {
   const data = await getSchedule(band_no, schedule_id);
   const sched = data.schedule || data;
   const rsvp = sched.rsvp || {};
 
-  // attendee_list items only carry {name}, no user_no — match sharers by name
-  const respondedNames = new Set([
-    ...(rsvp.attendee_list || []),
-    ...(rsvp.absentee_list || []),
-    ...(rsvp.maybe_list || []),
-    ...(rsvp.pending_attendee_list || []),
-  ].map(u => u.name));
+  const going    = (rsvp.attendee_list         || []).map(u => u.name).filter(Boolean);
+  const notGoing = (rsvp.absentee_list         || []).map(u => u.name).filter(Boolean);
+  const maybe    = (rsvp.maybe_list            || []).map(u => u.name).filter(Boolean);
+  const pending  = (rsvp.pending_attendee_list || []).map(u => u.name).filter(Boolean);
 
+  const respondedNames = new Set([...going, ...notGoing, ...maybe, ...pending]);
+
+  // secret_sharers is the full invite list for private events; may be absent for public ones
   const sharers = (sched.secret_sharers || []).filter(s => s.user_no);
-  const notResponded = sharers.filter(s => !respondedNames.has(s.name));
-  const responded    = sharers.filter(s =>  respondedNames.has(s.name));
+  const notResponded = sharers.filter(s => s.name && !respondedNames.has(s.name));
+
+  // Detect the current user's status by matching their stored name against the lists
+  let my_rsvp = null;
+  if (me_name) {
+    if (going.includes(me_name))    my_rsvp = 1;
+    else if (notGoing.includes(me_name)) my_rsvp = 2;
+    else if (maybe.includes(me_name))    my_rsvp = 3;
+  }
 
   return {
-    event_name:       sched.name,
-    start_at:         sched.start_at,
-    total_invited:    sharers.length,
-    attendee_count:   rsvp.attendee_count  || 0,
-    absentee_count:   rsvp.absentee_count  || 0,
-    maybe_count:      rsvp.maybe_count     || 0,
-    nonresponse_count: notResponded.length,
-    not_responded: notResponded.map(s => ({ user_no: s.user_no, name: s.name || `User ${s.user_no}` })),
-    responded:     responded.map(s =>    ({ user_no: s.user_no, name: s.name || `User ${s.user_no}` })),
+    event_name:    sched.name,
+    start_at:      sched.start_at,
+    total_invited: sharers.length,
+    attendee_count:  rsvp.attendee_count || 0,
+    absentee_count:  rsvp.absentee_count || 0,
+    maybe_count:     rsvp.maybe_count    || 0,
+    going,
+    not_going: notGoing,
+    maybe,
+    not_responded: notResponded.map(s => ({ user_no: s.user_no, name: s.name })),
+    my_rsvp,
   };
 }
 
@@ -295,6 +319,31 @@ async function syncGroupApply(band_no, calendar_id, group_id, days = 120, me_use
   return { applied_count: applied.length, applied };
 }
 
+async function checkIsAdmin(band_no) {
+  try {
+    await getMemberGroups(band_no);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+const NUM_TO_STATE = { 1: 'ATTENDANCE', 2: 'ABSENCE', 3: 'MAYBE' };
+
+// rsvp_type: 1=going, 2=not going, 3=maybe
+async function updateMyRsvp(band_no, schedule_id, rsvp_type, me_user_no) {
+  const rsvp_state = NUM_TO_STATE[rsvp_type];
+  if (!rsvp_state) throw new Error(`Unknown rsvp_type: ${rsvp_type}`);
+  if (!me_user_no) throw new Error('User number unknown — try reopening the extension.');
+  const body = new URLSearchParams({
+    band_no: String(band_no),
+    schedule_id,
+    target_users: JSON.stringify([{ user_no: me_user_no }]),
+    rsvp_state,
+  }).toString();
+  return call('POST', '/v2.0.0/set_schedule_rsvp_states', {}, body);
+}
+
 async function detectMe(band_no) {
   try {
     const data = await getMyBandSchedules(band_no);
@@ -314,13 +363,15 @@ async function detectMe(band_no) {
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   const dispatch = async () => {
     switch (msg.type) {
-      case 'band_week':        return bandWeek(msg.band_no, msg.days, msg.calendar_id);
-      case 'rsvp_status':      return rsvpStatus(msg.band_no, msg.schedule_id);
+      case 'band_week':        return bandWeek(msg.band_no, msg.days, msg.calendar_id, msg.me_name);
+      case 'rsvp_status':      return rsvpStatus(msg.band_no, msg.schedule_id, msg.me_name);
       case 'sync_group_dry':   return syncGroupDryRun(msg.band_no, msg.calendar_id, msg.group_id, msg.days, msg.me_user_no);
       case 'sync_group_apply': return syncGroupApply(msg.band_no, msg.calendar_id, msg.group_id, msg.days, msg.me_user_no, msg.notify);
       case 'get_calendars':    return getCalendars(msg.band_no);
       case 'get_member_groups':return getMemberGroups(msg.band_no);
       case 'check_auth':       return getSecretKey();
+      case 'check_admin':      return checkIsAdmin(msg.band_no);
+      case 'update_rsvp':      return updateMyRsvp(msg.band_no, msg.schedule_id, msg.rsvp_type, msg.me_user_no);
       case 'detect_me':        return detectMe(msg.band_no);
       case 'band_no_detected':
         chrome.storage.session.set({ detected_band_no: msg.value });
