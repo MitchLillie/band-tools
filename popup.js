@@ -106,7 +106,7 @@ async function init() {
   currentMeUserNo = localMe.me_user_no || null;
   currentMeName   = localMe.me_name   || null;
 
-  document.getElementById('band-info').textContent = currentBandNo ? `Band ${currentBandNo}` : 'Band Tools';
+  document.getElementById('band-info').textContent = 'Band Tools';
   document.getElementById('week-days').value = settings.week_days;
   document.getElementById('sync-days').value = settings.sync_days;
 

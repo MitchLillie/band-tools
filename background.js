@@ -145,7 +145,7 @@ function addDays(n) { const d = new Date(); d.setDate(d.getDate() + n); return y
 
 function fmtLocal(isoStr) {
   const d = new Date(isoStr);
-  const day = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][d.getDay()];
+  const day = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
   const h = d.getHours() % 12 || 12;
   const ampm = d.getHours() < 12 ? 'am' : 'pm';
   const min = d.getMinutes();
