@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Band Tools",
-  "version": "0.0.1",
+  "version": "0.2.0",
   "description": "View upcoming events, track RSVPs, and sync group members for your band.us group.",
   "permissions": ["cookies", "tabs", "storage", "activeTab"],
   "host_permissions": [
