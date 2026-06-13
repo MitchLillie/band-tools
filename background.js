@@ -1,17 +1,17 @@
-'use strict';
-
 // All API calls happen here (background service worker) to bypass CORS.
+//
+// The BAND API layer — auth, HMAC request signing, schedule endpoints — is provided
+// by the `bandstand` library (vendored browser build in ./vendor/bandstand.js).
+// See https://github.com/MitchLillie/bandstand. Refresh the vendored file with
+// `npm run build` in that repo and copy dist/browser.js here.
 
-const AKEY = 'bbc59b0b5f7a1c6efe950f6236ccda35';
-const API_BASE = 'https://api-usw.band.us';
+import { BandClient, stripForCreate } from './vendor/bandstand.js';
 
-let warmed = false;
+// ---- Auth / client ----
 
-// ---- Auth / cookies ----
-
-async function getSecretKey() {
-  // band.us uses credentials:include to send session cookies automatically.
-  // We only need secretKey to compute the per-request HMAC signature.
+async function readSecretKey() {
+  // band.us sends session cookies automatically via credentials:'include'; we only
+  // need secretKey's value to compute the per-request HMAC signature.
   // band_session was renamed SESSION at some point; check both.
   const [bsAll, sessionAll, skAll] = await Promise.all([
     chrome.cookies.getAll({ name: 'band_session' }),
@@ -26,116 +26,51 @@ async function getSecretKey() {
   return sk.value.replace(/"/g, '');
 }
 
-// ---- HMAC signing ----
-
-function extractPath(url) {
-  return url.replace(/^.*?:\/\/[^/]+/, '').replace(/'/g, '%27');
-}
-
-async function computeMd(secret, url) {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    'raw', enc.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-  );
-  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(extractPath(url)));
-  return btoa(String.fromCharCode(...new Uint8Array(sig)));
-}
-
-// ---- Core call ----
-
-async function call(method, path, params = {}, body = null) {
-  const secretKey = await getSecretKey();
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const tzOffsetMs = -new Date().getTimezoneOffset() * 60000;
-
-  params.ts = Date.now();
-  const qs = new URLSearchParams(params).toString();
-  const url = `${API_BASE}${path}?${qs}`;
-
-  const headers = {
-    'akey': AKEY,
-    'language': 'en',
-    'DEVICE-TIME-ZONE-ID': tz,
-    'DEVICE-TIME-ZONE-MS-OFFSET': String(tzOffsetMs),
-    'md': await computeMd(secretKey, url),
-  };
-
-  // credentials:'include' sends band.us cookies automatically.
-  // 'Cookie' is a forbidden header — Chrome strips it even from extensions.
-  const opts = { method, headers, credentials: 'include' };
-  if (method === 'POST' && body) {
-    headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';
-    opts.body = body;
+// Cache the client for the worker's lifetime (so warm-up runs once). Reset on any
+// auth failure so the next call re-reads cookies.
+let _clientPromise = null;
+function getClient() {
+  if (!_clientPromise) {
+    _clientPromise = (async () => {
+      const secretKey = await readSecretKey();
+      return BandClient.create({
+        cookies: { secretKey },
+        sendCookieHeader: false, // `Cookie` is a forbidden header in the browser
+        credentials: 'include',  // band.us session cookies ride along automatically
+      });
+    })().catch(err => { _clientPromise = null; throw err; });
   }
-
-  const resp = await fetch(url, opts);
-  if (resp.status === 401 || resp.status === 403)
-    throw new Error(`Auth error (HTTP ${resp.status}) — re-visit band.us.`);
-  if (!resp.ok)
-    throw new Error(`HTTP ${resp.status} from ${path}`);
-
-  const js = await resp.json();
-  if (js.result_code !== 1) {
-    const msg = JSON.stringify(js);
-    if (/auth|login|session|token|unauth/i.test(msg))
-      throw new Error(`API auth error — re-visit band.us.`);
-    throw new Error(`API error: ${msg}`);
-  }
-  return js.result_data;
+  return _clientPromise;
 }
 
-async function warmUp(band_no) {
-  if (warmed) return;
-  warmed = true;
-  try {
-    await call('GET', '/v2.0.0/touch_band_access', { band_no });
-    await call('GET', '/v2.0.0/get_calendars', { band_no, calendar_types: 'internal' });
-  } catch (_) {}
+// ---- API wrappers (delegate to bandstand) ----
+
+async function getCalendars(band_no) {
+  return (await getClient()).getCalendars(band_no);
 }
-
-// ---- API ----
-
-function getCalendars(band_no) {
-  return call('GET', '/v2.0.0/get_calendars', { band_no, calendar_types: 'internal' });
+async function getMemberGroups(band_no) {
+  return (await getClient()).getMemberGroups(band_no);
 }
-
-function getMemberGroups(band_no) {
-  return call('GET', '/v2.1.0/get_member_groups', { band_no });
+async function getGroupMembers(band_no, group_id) {
+  return (await getClient()).getGroupMembers(band_no, group_id);
 }
-
-function getGroupMembers(band_no, group_id) {
-  return call('GET', '/v2.0.0/get_members_of_band_with_filter',
-    { band_no, filter: 'member_group', param1: group_id });
-}
-
-function getSchedules(band_no, start_yyyymmdd, end_yyyymmdd, calendars) {
-  return call('GET', '/v1.6.0/get_schedules', {
-    band_no,
-    start_at: start_yyyymmdd,
-    future_end_at: end_yyyymmdd,
-    calendars: JSON.stringify(calendars || [{ is_default: true }]),
+async function getSchedules(band_no, start_yyyymmdd, end_yyyymmdd, calendars) {
+  return (await getClient()).getSchedules(band_no, start_yyyymmdd, end_yyyymmdd, {
+    calendars: calendars || [{ is_default: true }],
   });
 }
-
-function getSchedule(band_no, schedule_id) {
-  return call('GET', '/v1.6.0/get_schedule', { band_no, schedule_id, for_print: 'false', token: '' });
+async function getSchedule(band_no, schedule_id) {
+  return (await getClient()).getSchedule(band_no, schedule_id);
 }
-
 async function updateSchedule(band_no, schedule_id, schedule, notify = false) {
-  await warmUp(band_no);
-  const body = new URLSearchParams({
-    band_no, schedule_id,
-    schedule: JSON.stringify(schedule),
-    notify_to_members: String(notify),
-    recurring_edit_type: 'ALL',
-  }).toString();
-  return call('POST', '/v2.0.3/update_schedule', {}, body);
+  return (await getClient()).updateSchedule(band_no, schedule_id, schedule, { notify });
+}
+async function getMyBandSchedules(band_no) {
+  return (await getClient()).getMyBandSchedules(band_no);
 }
 
-function getMyBandSchedules(band_no) {
-  return call('GET', '/v2.0.0/get_my_band_schedules', { band_no });
-}
+// bandstand's stripForCreate is the same reduction as the old local stripSource.
+const stripSource = stripForCreate;
 
 // ---- Helpers ----
 
@@ -155,37 +90,6 @@ function fmtLocal(isoStr) {
 
 function scheduleUrl(ev) {
   return `https://band.us/band/${ev.band_no}/schedule/${encodeURIComponent(ev.schedule_id)}`;
-}
-
-// Fields allowed in create/update payloads
-const SCHEDULE_WRITABLE = new Set([
-  'name','description','calendar','start_at','end_at','is_all_day','is_lunar',
-  'is_secret','secret_sharers','schedule_time_zone_id','photos','files',
-  'dropbox_files','external_files','alarms','rsvp','is_local_meetup','location',
-]);
-const RSVP_WRITABLE = new Set([
-  'is_child_member_addible','custom_states','rsvp_visible_qualification',
-  'recurring_rsvp_end_offset','is_maybe_enabled',
-]);
-
-function stripSource(src) {
-  const out = {};
-  for (const [k, v] of Object.entries(src))
-    if (SCHEDULE_WRITABLE.has(k)) out[k] = v;
-  for (const k of ['photos','files','dropbox_files','external_files'])
-    out[k] = out[k] || [];
-  if (out.calendar)
-    out.calendar = { calendar_id: out.calendar.calendar_id, is_default: !!out.calendar.is_default };
-  if (out.rsvp) {
-    const r = {};
-    for (const [k, v] of Object.entries(out.rsvp))
-      if (RSVP_WRITABLE.has(k)) r[k] = v;
-    r.recurring_rsvp_end_offset = r.recurring_rsvp_end_offset ?? null;
-    out.rsvp = r;
-  }
-  if (out.secret_sharers)
-    out.secret_sharers = out.secret_sharers.filter(s => s?.user_no).map(s => ({ user_no: s.user_no }));
-  return out;
 }
 
 // ---- Features ----
@@ -335,13 +239,7 @@ async function updateMyRsvp(band_no, schedule_id, rsvp_type, me_user_no) {
   const rsvp_state = NUM_TO_STATE[rsvp_type];
   if (!rsvp_state) throw new Error(`Unknown rsvp_type: ${rsvp_type}`);
   if (!me_user_no) throw new Error('User number unknown — try reopening the extension.');
-  const body = new URLSearchParams({
-    band_no: String(band_no),
-    schedule_id,
-    target_users: JSON.stringify([{ user_no: me_user_no }]),
-    rsvp_state,
-  }).toString();
-  return call('POST', '/v2.0.0/set_schedule_rsvp_states', {}, body);
+  return (await getClient()).setRsvp(band_no, schedule_id, rsvp_state, me_user_no);
 }
 
 async function detectMe(band_no) {
@@ -369,7 +267,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case 'sync_group_apply': return syncGroupApply(msg.band_no, msg.calendar_id, msg.group_id, msg.days, msg.me_user_no, msg.notify);
       case 'get_calendars':    return getCalendars(msg.band_no);
       case 'get_member_groups':return getMemberGroups(msg.band_no);
-      case 'check_auth':       return getSecretKey();
+      case 'check_auth':       return readSecretKey();
       case 'check_admin':      return checkIsAdmin(msg.band_no);
       case 'update_rsvp':      return updateMyRsvp(msg.band_no, msg.schedule_id, msg.rsvp_type, msg.me_user_no);
       case 'detect_me':        return detectMe(msg.band_no);
@@ -383,6 +281,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   dispatch()
     .then(result => sendResponse({ ok: true, result }))
-    .catch(err   => sendResponse({ ok: false, error: err.message }));
+    .catch(err => {
+      // Reset the cached client on auth failures so the next call re-reads cookies.
+      if (/auth|login|session|secretkey|not logged in/i.test(err.message)) _clientPromise = null;
+      sendResponse({ ok: false, error: err.message });
+    });
   return true;
 });

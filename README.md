@@ -37,14 +37,20 @@ See [PRIVACY.md](PRIVACY.md). No data leaves your browser except to the Band API
 ## Development
 No build step — plain HTML/CSS/JS. Edit files and reload the extension in `chrome://extensions`.
 
+The BAND API layer (auth, HMAC request signing, schedule endpoints) comes from the
+[`bandstand`](https://github.com/MitchLillie/bandstand) library, vendored as a single
+browser build at `vendor/bandstand.js`. To update it, run `npm run build` in the
+bandstand repo and copy its `dist/browser.js` over `vendor/bandstand.js`.
+
 ```
 band-tools/
-  manifest.json     MV3 manifest
-  background.js     Service worker — all API calls
-  popup.html/js/css Toolbar popup UI
-  options.html/js   Settings page
-  content.js        Auto-detects band_no and user identity from the page
-  icons/            PNG icons (16, 48, 128px)
+  manifest.json        MV3 manifest (module service worker)
+  background.js        Service worker — features, backed by bandstand
+  vendor/bandstand.js  Vendored browser build of the bandstand API client
+  popup.html/js/css    Toolbar popup UI
+  options.html/js      Settings page
+  content.js           Auto-detects band_no and user identity from the page
+  icons/               PNG icons (16, 48, 128px)
 ```
 
 ## License
