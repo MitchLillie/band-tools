@@ -1,10 +1,3 @@
-// Headless integration test for the extension's service worker.
-//
-// Stubs the chrome.* surface (sinon-chrome) + globalThis.fetch, imports
-// background.js, captures its onMessage listener, and fires each message type —
-// asserting the response shapes against the REAL vendored bandstand bundle.
-// No real Chrome required. Run: npm test
-
 import { beforeAll, describe, expect, it } from "vitest";
 import sinonChrome from "sinon-chrome";
 
@@ -15,8 +8,6 @@ function jsonResponse(data) {
   });
 }
 
-// One schedule that satisfies every consumer: band_week (start_at/rsvp),
-// rsvp_status (rsvp lists), and sync_group (3-segment id + is_secret).
 const SCHEDULE = {
   schedule_id: "4/1/100/19700101",
   band_no: 1,
@@ -39,7 +30,6 @@ const SCHEDULE = {
 
 function fakeFetch(url) {
   const u = String(url);
-  // Order matters: check longer/more-specific paths first (get_schedules vs get_schedule).
   const route = () => {
     if (u.includes("get_my_band_schedules")) return { items: [{ owner: { user_no: 7, name: "Me" } }] };
     if (u.includes("get_schedules")) return { items: [SCHEDULE], paging: { next_params: null } };
@@ -59,13 +49,10 @@ let send;
 
 beforeAll(async () => {
   globalThis.chrome = sinonChrome.default ?? sinonChrome;
-
-  // Capture the message listener background.js registers at import time.
   let listener;
   chrome.runtime.onMessage.addListener = (fn) => {
     listener = fn;
   };
-  // The few chrome APIs background.js actually uses.
   chrome.cookies = {
     getAll: async ({ name }) =>
       name === "secretKey"
@@ -75,22 +62,19 @@ beforeAll(async () => {
           : [],
   };
   chrome.storage = { local: { set: async () => {} }, session: { set: async () => {} } };
-
   globalThis.fetch = fakeFetch;
 
-  await import("../background.js");
+  await import("../src/background.js");
   send = (msg) => new Promise((resolve) => listener(msg, {}, resolve));
 });
 
 describe("background.js message handlers (mocked chrome + fetch)", () => {
-  it("check_auth returns the secret (quotes stripped)", async () => {
-    const r = await send({ type: "check_auth" });
-    expect(r).toEqual({ ok: true, result: "testsecret" });
+  it("check_auth returns the secret", async () => {
+    expect(await send({ type: "check_auth" })).toEqual({ ok: true, result: "testsecret" });
   });
 
   it("get_calendars", async () => {
     const r = await send({ type: "get_calendars", band_no: 1 });
-    expect(r.ok).toBe(true);
     expect(r.result.internal_calendars).toHaveLength(1);
   });
 
@@ -99,40 +83,28 @@ describe("background.js message handlers (mocked chrome + fetch)", () => {
     expect(r.result.items[0].name).toBe("Group");
   });
 
-  it("check_admin → true when groups load", async () => {
-    const r = await send({ type: "check_admin", band_no: 1 });
-    expect(r.result).toBe(true);
+  it("check_admin → true", async () => {
+    expect((await send({ type: "check_admin", band_no: 1 })).result).toBe(true);
   });
 
-  it("detect_me resolves owner user_no/name", async () => {
-    const r = await send({ type: "detect_me", band_no: 1 });
-    expect(r.result).toEqual({ user_no: 7, name: "Me" });
+  it("detect_me", async () => {
+    expect((await send({ type: "detect_me", band_no: 1 })).result).toEqual({ user_no: 7, name: "Me" });
   });
 
-  it("band_week maps events with my_rsvp + url", async () => {
+  it("band_week", async () => {
     const r = await send({ type: "band_week", band_no: 1, days: 3650 });
-    expect(r.ok).toBe(true);
-    expect(r.result[0]).toMatchObject({
-      name: "Event",
-      schedule_id: SCHEDULE.schedule_id,
-      my_rsvp: 1,
-    });
+    expect(r.result[0]).toMatchObject({ name: "Event", schedule_id: SCHEDULE.schedule_id, my_rsvp: 1 });
     expect(r.result[0].url).toContain("/schedule/");
   });
 
-  it("rsvp_status buckets attendees and detects my status", async () => {
-    const r = await send({
-      type: "rsvp_status",
-      band_no: 1,
-      schedule_id: SCHEDULE.schedule_id,
-      me_name: "Alice",
-    });
+  it("rsvp_status", async () => {
+    const r = await send({ type: "rsvp_status", band_no: 1, schedule_id: SCHEDULE.schedule_id, me_name: "Alice" });
     expect(r.result.event_name).toBe("Event");
     expect(r.result.going).toContain("Alice");
     expect(r.result.my_rsvp).toBe(1);
   });
 
-  it("update_rsvp posts a state", async () => {
+  it("update_rsvp", async () => {
     const r = await send({
       type: "update_rsvp",
       band_no: 1,
@@ -143,35 +115,19 @@ describe("background.js message handlers (mocked chrome + fetch)", () => {
     expect(r.ok).toBe(true);
   });
 
-  it("sync_group_dry finds the missing member", async () => {
-    const r = await send({
-      type: "sync_group_dry",
-      band_no: 1,
-      calendar_id: 2,
-      group_id: 1,
-      days: 3650,
-      me_user_no: null,
-    });
-    expect(r.ok).toBe(true);
+  it("sync_group_dry", async () => {
+    const r = await send({ type: "sync_group_dry", band_no: 1, calendar_id: 2, group_id: 1, days: 3650, me_user_no: null });
     expect(r.result.group_size).toBe(1);
     expect(r.result.updates_needed).toBe(1);
     expect(r.result.updates[0].missing_names).toContain("Bob");
   });
 
-  it("sync_group_apply applies the update", async () => {
-    const r = await send({
-      type: "sync_group_apply",
-      band_no: 1,
-      calendar_id: 2,
-      group_id: 1,
-      days: 3650,
-      me_user_no: null,
-    });
-    expect(r.ok).toBe(true);
+  it("sync_group_apply", async () => {
+    const r = await send({ type: "sync_group_apply", band_no: 1, calendar_id: 2, group_id: 1, days: 3650, me_user_no: null });
     expect(r.result.applied_count).toBe(1);
   });
 
-  it("unknown message type → ok:false with an error", async () => {
+  it("unknown type → ok:false", async () => {
     const r = await send({ type: "definitely_not_a_real_type" });
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/unknown message type/i);

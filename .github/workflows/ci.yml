@@ -15,8 +15,6 @@ jobs:
           node-version: 22.x
           cache: npm
       - run: npm ci
-      # Headless unit tests of the service worker (mocked chrome + fetch).
       - run: npm test
-      # Real-Chromium E2E: loads the unpacked extension and drives the popup.
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e

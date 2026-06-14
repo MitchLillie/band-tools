@@ -35,22 +35,29 @@ A Chrome extension for [band.us](https://band.us) groups. Adds three features th
 See [PRIVACY.md](PRIVACY.md). No data leaves your browser except to the Band API.
 
 ## Development
-No build step — plain HTML/CSS/JS. Edit files and reload the extension in `chrome://extensions`.
 
-The BAND API layer (auth, HMAC request signing, schedule endpoints) comes from the
-[`bandstand`](https://github.com/MitchLillie/bandstand) library, vendored as a single
-browser build at `vendor/bandstand.js`. To update it, run `npm run build` in the
-bandstand repo and copy its `dist/browser.js` over `vendor/bandstand.js`.
+The service worker uses the [`bandstand`](https://github.com/MitchLillie/bandstand)
+API client, bundled from `src/background.js` with esbuild.
+
+```bash
+npm install
+npm run build   # src/background.js -> background.js
+npm test        # unit tests (vitest)
+npm run e2e      # Chromium E2E (Playwright)
+```
+
+Load the folder as an unpacked extension after building. The popup, options, and
+content script are plain HTML/JS and need no build.
 
 ```
 band-tools/
-  manifest.json        MV3 manifest (module service worker)
-  background.js        Service worker — features, backed by bandstand
-  vendor/bandstand.js  Vendored browser build of the bandstand API client
-  popup.html/js/css    Toolbar popup UI
-  options.html/js      Settings page
-  content.js           Auto-detects band_no and user identity from the page
-  icons/               PNG icons (16, 48, 128px)
+  manifest.json      MV3 manifest (module service worker)
+  src/background.js  Service worker source (imports bandstand/browser)
+  background.js      esbuild output, loaded by the manifest (gitignored)
+  popup.html/js/css  Toolbar popup UI
+  options.html/js    Settings page
+  content.js         Auto-detects band_no and user identity from the page
+  icons/             PNG icons (16, 48, 128px)
 ```
 
 ## License
