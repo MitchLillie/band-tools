@@ -8,3 +8,6 @@ blob-report/
 
 # Build output (the loadable extension)
 /dist/
+
+# Local design-preview scaffolding (not part of the extension)
+/preview/

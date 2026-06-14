@@ -1,5 +1,17 @@
 import { BandClient, stripForCreate } from "bandstand/browser";
 
+// Mark load-unpacked dev builds with a "DEV" toolbar badge so they're easy to
+// tell apart from a Web Store install. installType is "development" for unpacked
+// extensions and "normal" for Store installs. getSelf needs no permission.
+Promise.resolve(chrome.management?.getSelf?.())
+  .then((self) => {
+    if (self?.installType !== "development") return;
+    chrome.action.setBadgeText({ text: "DEV" });
+    chrome.action.setBadgeBackgroundColor({ color: "#e8392c" });
+    chrome.action.setBadgeTextColor?.({ color: "#ffffff" });
+  })
+  .catch(() => {});
+
 async function readSecretKey() {
   const [bsAll, sessionAll, skAll] = await Promise.all([
     chrome.cookies.getAll({ name: "band_session" }),
