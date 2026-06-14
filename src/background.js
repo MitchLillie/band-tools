@@ -61,6 +61,9 @@ async function getSchedule(band_no, schedule_id) {
 async function updateSchedule(band_no, schedule_id, schedule, notify = false) {
   return (await getClient()).updateSchedule(band_no, schedule_id, schedule, { notify });
 }
+async function createSchedule(band_no, schedule, announceable = false) {
+  return (await getClient()).createSchedule(band_no, schedule, { announceable });
+}
 async function getMyBandSchedules(band_no) {
   return (await getClient()).getMyBandSchedules(band_no);
 }
@@ -272,6 +275,40 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case "band_no_detected":
         chrome.storage.session.set({ detected_band_no: msg.value });
         return null;
+      case "get_schedule":
+        return getSchedule(msg.band_no, msg.schedule_id);
+      case "create_schedule":
+        return createSchedule(msg.band_no, msg.schedule, msg.announceable);
+      case "copy_schedule": {
+        const src = await getSchedule(msg.band_no, msg.source_schedule_id);
+        const payload = stripForCreate(src.schedule || src);
+        if (msg.overrides) Object.assign(payload, msg.overrides);
+        // Ensure calendar has calendar_id — create_schedule requires it
+        if (payload.calendar && payload.calendar.calendar_id == null && payload.calendar.is_default) {
+          // Look up the default calendar id from the calendar list
+          try {
+            const cals = await getCalendars(msg.band_no);
+            const list = cals?.internal_calendars || cals?.calendars || cals?.items || [];
+            const def = list.find(c => c.is_default);
+            if (def?.calendar_id != null) payload.calendar.calendar_id = def.calendar_id;
+          } catch { /* fall through with whatever we have */ }
+        }
+        return createSchedule(msg.band_no, payload, msg.announceable);
+      }
+      case "copy_schedule_into": {
+        const src = await getSchedule(msg.band_no, msg.source_schedule_id);
+        const payload = stripForCreate(src.schedule || src);
+        if (msg.overrides) Object.assign(payload, msg.overrides);
+        if (payload.calendar && payload.calendar.calendar_id == null && payload.calendar.is_default) {
+          try {
+            const cals = await getCalendars(msg.band_no);
+            const list = cals?.internal_calendars || cals?.calendars || cals?.items || [];
+            const def = list.find(c => c.is_default);
+            if (def?.calendar_id != null) payload.calendar.calendar_id = def.calendar_id;
+          } catch {}
+        }
+        return updateSchedule(msg.band_no, msg.dest_schedule_id, payload, msg.announceable);
+      }
       default:
         throw new Error(`Unknown message type: ${msg.type}`);
     }

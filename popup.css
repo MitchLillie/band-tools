@@ -210,6 +210,23 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus {
 }
 input[type="number"] { width: 90px; }
 select { min-width: 140px; }
+textarea {
+  padding: 6px 9px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  width: 100%;
+  background: var(--surface);
+  color: var(--ink);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
 
 .controls {
   display: flex;

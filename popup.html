@@ -57,6 +57,48 @@
         </div>
       </div>
       <div id="sync-results" class="results"></div>
+
+      <hr style="margin:16px 0; border:none; border-top:1px solid #e0e0e0;">
+
+      <div id="copy-event-panel">
+        <p class="tab-desc" style="margin-bottom:4px;font-weight:600;color:var(--ink)">Copy Event</p>
+        <p class="tab-desc" style="margin-bottom:10px">Duplicate an event to a new one, with optional overrides.</p>
+
+        <div class="controls">
+          <label class="full-width">
+            Source Event ID
+            <input type="text" id="copy-source-id" placeholder="e.g. 12345/67890/abcdef">
+          </label>
+          <button id="copy-load-source">Load</button>
+        </div>
+
+        <div id="copy-fields" class="hidden" style="margin-top:10px;display:flex;flex-direction:column;gap:10px">
+          <label>Name<input type="text" id="copy-name"></label>
+          <div style="display:flex;gap:10px">
+            <label style="flex:1">Start At<input type="text" id="copy-start" placeholder="YYYY-MM-DD HH:mm"></label>
+            <label style="flex:1">End At<input type="text" id="copy-end" placeholder="YYYY-MM-DD HH:mm"></label>
+          </div>
+          <label>
+            Description
+            <textarea id="copy-description" rows="3" style="resize:vertical;font-family:inherit"></textarea>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" id="copy-copy-loc" checked> Copy location
+          </label>
+
+          <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+            <label class="checkbox-row">
+              <input type="radio" name="copy-mode" value="create" checked> Create new
+            </label>
+            <label class="checkbox-row">
+              <input type="radio" name="copy-mode" value="update"> Update existing
+            </label>
+            <input type="text" id="copy-dest-id" placeholder="Destination event ID" style="width:180px;display:none">
+            <button id="copy-go" style="margin-left:auto">Copy Event</button>
+          </div>
+          <div id="copy-result" class="results"></div>
+        </div>
+      </div>
     </div>
 
     <!-- Settings tab (all users) -->

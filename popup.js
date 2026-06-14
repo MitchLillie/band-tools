@@ -56,6 +56,19 @@ function escHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+function toUtcIso(val) {
+  // Accepts YYYY-MM-DD HH:MM or YYYY-MM-DDTHH:MM or full ISO
+  if (!val) return '';
+  const normalized = val.includes('T') ? val : val.replace(' ', 'T');
+  // if it already has seconds and timezone, return as-is
+  if (/:\d{2}[Z+-]/.test(normalized)) return normalized;
+  try {
+    const d = new Date(normalized);
+    if (isNaN(d.getTime())) return normalized + ':00Z';
+    return d.toISOString().replace('.000Z', 'Z');
+  } catch { return normalized + ':00Z'; }
+}
+
 async function detectBandNo() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -504,6 +517,112 @@ document.getElementById('sync-apply').addEventListener('click', async () => {
   }
 });
 
+// ---- Copy Event (Admin tab) ----
+
+document.getElementById('copy-load-source').addEventListener('click', async () => {
+  const scheduleId = document.getElementById('copy-source-id').value.trim();
+  const resultEl = document.getElementById('copy-result');
+
+  if (!scheduleId) {
+    setHtml(resultEl, '<p class="err">Enter a source event ID.</p>');
+    return;
+  }
+  if (!currentBandNo) {
+    setHtml(resultEl, '<p class="err">No band configured.</p>');
+    return;
+  }
+
+  setHtml(resultEl, '<p class="msg">Loading event…</p>');
+  try {
+    const data = await send({ type: 'get_schedule', band_no: currentBandNo, schedule_id: scheduleId });
+    const sched = data.schedule || data;
+
+    document.getElementById('copy-name').value = sched.name || '';
+    document.getElementById('copy-start').value = (sched.start_at || '').replace('T', ' ').slice(0, 16);
+    document.getElementById('copy-end').value = (sched.end_at || '').replace('T', ' ').slice(0, 16);
+    document.getElementById('copy-description').value = sched.description || '';
+    document.getElementById('copy-copy-loc').checked = true;
+
+    show(document.getElementById('copy-fields'));
+    setHtml(resultEl, `<p class="ok">Loaded: ${escHtml(sched.name || '(unnamed)')}</p>`);
+  } catch (err) {
+    setHtml(resultEl, `<p class="err">${escHtml(err.message)}</p>`);
+  }
+});
+
+// Toggle destination ID field visibility
+function toggleDestField() {
+  const mode = document.querySelector('input[name="copy-mode"]:checked')?.value;
+  const destInput = document.getElementById('copy-dest-id');
+  destInput.style.display = mode === 'update' ? '' : 'none';
+}
+document.querySelectorAll('input[name="copy-mode"]').forEach(r => {
+  r.addEventListener('change', toggleDestField);
+});
+
+document.getElementById('copy-go').addEventListener('click', async () => {
+  const resultEl = document.getElementById('copy-result');
+  const srcId = document.getElementById('copy-source-id').value.trim();
+  const mode = document.querySelector('input[name="copy-mode"]:checked')?.value;
+  const destId = document.getElementById('copy-dest-id').value.trim();
+
+  if (!srcId || !currentBandNo) {
+    setHtml(resultEl, '<p class="err">Load a source event first.</p>');
+    return;
+  }
+  if (mode === 'update' && !destId) {
+    setHtml(resultEl, '<p class="err">Enter a destination event ID for update mode.</p>');
+    return;
+  }
+
+  const overrides = {};
+  const name = document.getElementById('copy-name').value.trim();
+  const start = document.getElementById('copy-start').value.trim();
+  const end = document.getElementById('copy-end').value.trim();
+  const desc = document.getElementById('copy-description').value.trim();
+  const copyLoc = document.getElementById('copy-copy-loc').checked;
+
+  if (name) overrides.name = name;
+  if (start) overrides.start_at = toUtcIso(start);
+  if (end) overrides.end_at = toUtcIso(end);
+  if (desc) overrides.description = desc;
+  overrides.is_all_day = false;
+  overrides.is_secret = true;
+  if (!copyLoc) overrides.location = null;
+
+  if (mode === 'update') {
+    setHtml(resultEl, '<p class="msg">Updating destination event…</p>');
+    try {
+      const result = await send({
+        type: 'copy_schedule_into',
+        band_no: currentBandNo,
+        source_schedule_id: srcId,
+        dest_schedule_id: destId,
+        overrides,
+        announceable: false,
+      });
+      setHtml(resultEl, `<p class="ok">Updated! ${escHtml(result.schedule?.name || '')}</p>`);
+    } catch (err) {
+      setHtml(resultEl, `<p class="err">${escHtml(err.message)}</p>`);
+    }
+  } else {
+    setHtml(resultEl, '<p class="msg">Creating event…</p>');
+    try {
+      const result = await send({
+        type: 'copy_schedule',
+        band_no: currentBandNo,
+        source_schedule_id: srcId,
+        overrides,
+        announceable: false,
+      });
+      const newId = result.schedule?.schedule_id || '(unknown)';
+      setHtml(resultEl, `<p class="ok">Event created! ID: ${escHtml(newId)}</p>`);
+    } catch (err) {
+      setHtml(resultEl, `<p class="err">${escHtml(err.message)}</p>`);
+    }
+  }
+});
+
 // ---- Settings tab ----
 
 function switchToTab(name) {
@@ -538,7 +657,7 @@ async function loadSettingsDropdowns(band_no, defCal, defGroup) {
   } catch (err) {
     calSel.innerHTML = `<option value="">Error: ${escHtml(err.message)}</option>`;
   }
-  if (!currentIsAdmin) return; // Default Group is admin-only (and hidden)
+  if (!currentIsAdmin) return;
   try {
     const grpData = await send({ type: 'get_member_groups', band_no: Number(band_no) });
     const groups = grpData.items || [];
