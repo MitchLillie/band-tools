@@ -50,14 +50,21 @@
   // ---- Duplicate button injection ----
 
   const BTN_CLASS = '_bt_dup_btn';
+  // Stash the schedule ID when clicking a calendar grid event (needed for modal injection)
+  let lastClickedSchedId = null;
+
+  // Intercept clicks on calendar grid events to capture the schedule ID
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-scheduleid]');
+    if (el) {
+      lastClickedSchedId = el.getAttribute('data-scheduleid');
+    }
+  }, true);
 
   function scheduleInjection() {
     if (!bandNo || !isAdmin) return;
     try {
-      // Detail page or modal: inject on the event title h2
       injectOnTitles();
-      // Calendar / feed: inject on each event item
-      injectOnItems();
     } catch (_) {}
   }
 
@@ -72,8 +79,11 @@
       if (titleEl.tagName === 'H1') continue;
       if (titleEl.querySelector(`.${BTN_CLASS}`)) continue;
 
-      const schedId = location.pathname.includes('/schedule/')
-        ? extractSchedId(location.pathname) : extractSchedIdFromPage();
+      // Detail page: get ID from URL. Modal: use stashed ID from click interceptor.
+      const inModal = titleEl.closest('.layerContainerView');
+      const schedId = inModal
+        ? lastClickedSchedId
+        : extractSchedId(location.pathname);
       if (!schedId) continue;
 
       const btn = makeBtn(schedId, 'detail');
@@ -82,46 +92,9 @@
     }
   }
 
-  /** Inject ⧉ on event items (calendar grid + list + feed) */
-  function injectOnItems() {
-    // Calendar grid: [data-scheduleid]
-    document.querySelectorAll('[data-scheduleid]').forEach(el => {
-      if (el.closest(`.${BTN_CLASS}`)) return;
-      if (el.querySelector(`.${BTN_CLASS}`)) return;
-      // Avoid nav/header items
-      if (el.closest('nav, header, [class*="gnb"], [class*="lnb"]')) return;
-      const schedId = el.getAttribute('data-scheduleid');
-      if (!schedId) return;
-      const btn = makeBtn(schedId, 'feed');
-      el.appendChild(btn);
-    });
-
-    // Schedule list items (href-based fallback)
-    const contentArea = document.querySelector('#content, .midContent, main') || document;
-    contentArea.querySelectorAll('a[href*="/schedule/"]').forEach(link => {
-      if (link.closest('[data-scheduleid]')) return; // already handled above
-      if (link.closest('nav, header, [role="navigation"], [class*="gnb"], [class*="lnb"], [class*="menu"], [class*="toolbar"]')) return;
-      if (link.parentElement?.querySelector(`.${BTN_CLASS}`)) return;
-      const schedId = extractSchedId(link.href);
-      if (!schedId) return;
-      const btn = makeBtn(schedId, 'feed');
-      link.parentNode.insertBefore(btn, link.nextSibling);
-    });
-  }
-
   function extractSchedId(href) {
     const m = href.match(/\/schedule\/([^/?#]+)/);
     return m ? decodeURIComponent(m[1]) : null;
-  }
-
-  /** Try to find a schedule ID from the page (for modal context where URL doesn't have it) */
-  function extractSchedIdFromPage() {
-    // Look in the modal container — may have data attributes
-    const modal = document.querySelector('.layerContainerView [data-scheduleid], .layerContainerView a[href*="/schedule/"]');
-    if (modal) {
-      return modal.getAttribute('data-scheduleid') || extractSchedId(modal.getAttribute('href') || '');
-    }
-    return null;
   }
 
   function makeBtn(schedId, mode) {
@@ -162,9 +135,6 @@
   }
 
   // ---- Duplicate configuration dialog ----
-
-  // Store loaded source data so we only fetch once per dialog open
-  let dialogState = null;
 
   function showDuplicateDialog(schedId) {
     // Remove any existing dialog
