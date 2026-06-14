@@ -51,6 +51,50 @@
         </div>
       </div>
       <div id="sync-results" class="results"></div>
+
+      <hr style="margin:16px 0; border:none; border-top:1px solid #e0e0e0;">
+
+      <div id="copy-event-panel">
+        <p class="tab-desc" style="margin-bottom:8px;font-weight:600;color:#333">Copy Event</p>
+        <p class="tab-desc" style="margin-bottom:8px">Copy a source event's fields to a new event, with optional overrides.</p>
+
+        <div class="controls">
+          <label class="full-width">
+            Source Event ID
+            <input type="text" id="copy-source-id" placeholder="e.g. 12345/67890/abcdef" style="width:100%">
+          </label>
+          <button id="copy-load-source">Load</button>
+        </div>
+
+        <div id="copy-fields" class="hidden" style="margin-top:8px">
+          <label>Name<input type="text" id="copy-name" style="width:100%"></label>
+          <div style="display:flex;gap:8px;margin-top:6px">
+            <label style="flex:1">Start At<input type="text" id="copy-start" placeholder="YYYY-MM-DD HH:mm"></label>
+            <label style="flex:1">End At<input type="text" id="copy-end" placeholder="YYYY-MM-DD HH:mm"></label>
+          </div>
+          <label style="margin-top:6px">
+            Description
+            <textarea id="copy-description" rows="3" style="width:100%;resize:vertical;font-size:13px;padding:5px 7px;border:1px solid #ccc;border-radius:4px;font-family:inherit"></textarea>
+          </label>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:6px">
+            <label style="flex-direction:row;align-items:center;gap:5px;font-size:13px;color:#222">
+              <input type="checkbox" id="copy-copy-loc" checked> Copy location
+            </label>
+          </div>
+
+          <div style="margin-top:10px;display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+            <label style="flex-direction:row;align-items:center;gap:5px;font-size:13px;color:#222;white-space:nowrap">
+              <input type="radio" name="copy-mode" value="create" checked> Create new
+            </label>
+            <label style="flex-direction:row;align-items:center;gap:5px;font-size:13px;color:#222;white-space:nowrap">
+              <input type="radio" name="copy-mode" value="update"> Update existing
+            </label>
+            <input type="text" id="copy-dest-id" placeholder="Destination event ID" style="width:180px;display:none">
+            <button id="copy-go" style="margin-left:auto">Copy Event</button>
+          </div>
+          <div id="copy-result" class="results" style="margin-top:6px"></div>
+        </div>
+      </div>
     </div>
   </div>
   <script src="popup.js"></script>

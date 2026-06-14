@@ -55,22 +55,25 @@ function fmtDate(isoStr) {
   } catch (_) { return isoStr?.slice(0, 10) || ''; }
 }
 
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-function fmtCopy(ev) {
-  try {
-    const d = new Date(ev.start_at);
-    return `${DAYS[d.getDay()]} ${MONTHS[d.getMonth()]} ${d.getDate()} — ${ev.name}`;
-  } catch (_) { return `${ev.when} — ${ev.name}`; }
-}
-
 function escHtml(str) {
   return String(str || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function toUtcIso(val) {
+  // Accepts YYYY-MM-DD HH:MM or YYYY-MM-DDTHH:MM or full ISO
+  if (!val) return '';
+  const normalized = val.includes('T') ? val : val.replace(' ', 'T');
+  // if it already has seconds and timezone, return as-is
+  if (/:\d{2}[Z+-]/.test(normalized)) return normalized;
+  try {
+    const d = new Date(normalized);
+    if (isNaN(d.getTime())) return normalized + ':00Z';
+    return d.toISOString().replace('.000Z', 'Z');
+  } catch { return normalized + ':00Z'; }
 }
 
 async function detectBandNo() {
@@ -249,7 +252,6 @@ function renderWeek(el, items) {
         <div class="event-header">
           <span class="event-when">${escHtml(ev.when)}</span>
           <a href="${safeUrl}" target="_blank" rel="noopener" class="event-name">${escHtml(ev.name)}</a>
-          <button class="btn-copy-event" data-idx="${i}" title="Copy event">⎘</button>
           <button class="btn-expand" data-idx="${i}" title="Show RSVP details">›</button>
         </div>
         ${rsvpRow}
@@ -269,15 +271,6 @@ function renderWeek(el, items) {
         btn.classList.add('expanded');
         loadEventDetail(idx, detailEl);
       }
-    });
-  });
-
-  el.querySelectorAll('.btn-copy-event').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const ev = weekItems[Number(btn.dataset.idx)];
-      if (!ev) return;
-      await navigator.clipboard.writeText(fmtCopy(ev));
-      flashCopied(btn, '⎘');
     });
   });
 
@@ -413,18 +406,15 @@ document.getElementById('week-days').addEventListener('input', () => {
   weekDebounce = setTimeout(() => loadWeek(true), 600);
 });
 
-async function flashCopied(btn, originalText) {
-  btn.classList.add('copied');
-  btn.textContent = '✓';
-  setTimeout(() => { btn.classList.remove('copied'); btn.textContent = originalText; }, 1500);
-}
-
-// Copy all as plain text
+// Copy as plain text
 document.getElementById('week-copy').addEventListener('click', async () => {
   if (!weekItems.length) return;
-  const text = weekItems.map(fmtCopy).join('\n');
+  const text = weekItems.map(ev => `${ev.when} - ${ev.name} - ${ev.url}`).join('\n');
   await navigator.clipboard.writeText(text);
-  flashCopied(document.getElementById('week-copy'), '⎘');
+  const btn = document.getElementById('week-copy');
+  btn.classList.add('copied');
+  btn.textContent = '✓';
+  setTimeout(() => { btn.classList.remove('copied'); btn.textContent = '⎘'; }, 1500);
 });
 
 // ---- Sync Group (Admin tab) ----
@@ -519,5 +509,120 @@ document.getElementById('sync-apply').addEventListener('click', async () => {
   } catch (err) {
     setHtml(resultsEl, `<p class="err">${escHtml(err.message)}</p>`);
     show(applyBtn);
+  }
+});
+
+// ---- Copy Event (Admin tab) ----
+
+document.getElementById('copy-load-source').addEventListener('click', async () => {
+  const scheduleId = document.getElementById('copy-source-id').value.trim();
+  const resultEl = document.getElementById('copy-result');
+
+  if (!scheduleId) {
+    setHtml(resultEl, '<p class="err">Enter a source event ID.</p>');
+    return;
+  }
+  if (!currentBandNo) {
+    setHtml(resultEl, '<p class="err">No band configured.</p>');
+    return;
+  }
+
+  setHtml(resultEl, '<p class="msg">Loading event…</p>');
+  try {
+    const data = await send({ type: 'get_schedule', band_no: currentBandNo, schedule_id: scheduleId });
+    const sched = data.schedule || data;
+
+    document.getElementById('copy-name').value = sched.name || '';
+    document.getElementById('copy-start').value = (sched.start_at || '').replace('T', ' ').slice(0, 16);
+    document.getElementById('copy-end').value = (sched.end_at || '').replace('T', ' ').slice(0, 16);
+    document.getElementById('copy-description').value = sched.description || '';
+    document.getElementById('copy-all-day').checked = !!sched.is_all_day;
+    document.getElementById('copy-is-secret').checked = !!sched.is_secret;
+    document.getElementById('copy-announce').checked = false;
+    document.getElementById('copy-copy-loc').checked = true;
+    document.getElementById('copy-location').value = sched.location?.name || sched.location?.address || '';
+    document.getElementById('copy-location').dataset.original = sched.location?.name || sched.location?.address || '';
+
+    show(document.getElementById('copy-fields'));
+    setHtml(resultEl, `<p class="ok">Loaded: ${escHtml(sched.name || '(unnamed)')}</p>`);
+  } catch (err) {
+    setHtml(resultEl, `<p class="err">${escHtml(err.message)}</p>`);
+  }
+});
+
+// Toggle destination ID field visibility
+function toggleDestField() {
+  const mode = document.querySelector('input[name="copy-mode"]:checked')?.value;
+  const destInput = document.getElementById('copy-dest-id');
+  destInput.style.display = mode === 'update' ? '' : 'none';
+}
+document.querySelectorAll('input[name="copy-mode"]').forEach(r => {
+  r.addEventListener('change', toggleDestField);
+});
+
+document.getElementById('copy-go').addEventListener('click', async () => {
+  const resultEl = document.getElementById('copy-result');
+  const srcId = document.getElementById('copy-source-id').value.trim();
+  const mode = document.querySelector('input[name="copy-mode"]:checked')?.value;
+  const destId = document.getElementById('copy-dest-id').value.trim();
+
+  if (!srcId || !currentBandNo) {
+    setHtml(resultEl, '<p class="err">Load a source event first.</p>');
+    return;
+  }
+  if (mode === 'update' && !destId) {
+    setHtml(resultEl, '<p class="err">Enter a destination event ID for update mode.</p>');
+    return;
+  }
+
+  const overrides = {};
+  const name = document.getElementById('copy-name').value.trim();
+  const start = document.getElementById('copy-start').value.trim();
+  const end = document.getElementById('copy-end').value.trim();
+  const desc = document.getElementById('copy-description').value.trim();
+  const allDay = document.getElementById('copy-all-day').checked;
+  const isSecret = document.getElementById('copy-is-secret').checked;
+  const announce = document.getElementById('copy-announce').checked;
+  const loc = document.getElementById('copy-location').value.trim();
+  const origLoc = document.getElementById('copy-location').dataset.original || '';
+
+  if (name) overrides.name = name;
+  if (start) overrides.start_at = toUtcIso(start);
+  if (end) overrides.end_at = toUtcIso(end);
+  if (desc) overrides.description = desc;
+  overrides.is_all_day = allDay;
+  overrides.is_secret = isSecret;
+  if (loc !== origLoc) overrides.location = { name: loc };
+
+  if (mode === 'update') {
+    setHtml(resultEl, '<p class="msg">Updating destination event…</p>');
+    try {
+      const result = await send({
+        type: 'copy_schedule_into',
+        band_no: currentBandNo,
+        source_schedule_id: srcId,
+        dest_schedule_id: destId,
+        overrides,
+        announceable: false,
+      });
+      setHtml(resultEl, `<p class="ok">Updated! ${escHtml(result.schedule?.name || '')}</p>`);
+    } catch (err) {
+      setHtml(resultEl, `<p class="err">${escHtml(err.message)}</p>`);
+    }
+  } else {
+    setHtml(resultEl, '<p class="msg">Creating event…</p>');
+    try {
+      const result = await send({
+        type: 'copy_schedule',
+        band_no: currentBandNo,
+        source_schedule_id: srcId,
+        overrides,
+        announceable: false,
+      });
+      const newId = result.schedule?.schedule_id || '(unknown)';
+      setHtml(resultEl, `<p class="ok">Event created! ID: ${escHtml(newId)}</p>`);
+    } catch (err) {
+      setHtml(resultEl, `<p class="err">${escHtml(err.message)}</p>`);
+    }
   }
 });

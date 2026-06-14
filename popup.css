@@ -209,26 +209,6 @@ button.btn-expand {
 button.btn-expand:hover { background: #e8eaed; border-color: #bbb; color: #1a73e8; }
 button.btn-expand.expanded { transform: rotate(90deg); background: #e8f0fe; border-color: #1a73e8; color: #1a73e8; }
 
-button.btn-copy-event {
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  color: #aaa;
-  font-size: 13px;
-  line-height: 1;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.1s, border-color 0.1s, color 0.1s;
-}
-button.btn-copy-event:hover { background: #f1f3f4; border-color: #dadce0; color: #555; }
-button.btn-copy-event.copied { background: #e6f4ea; border-color: #a8d5b0; color: #1e7e34; }
-
 /* ---- RSVP buttons ---- */
 
 .event-rsvp {
