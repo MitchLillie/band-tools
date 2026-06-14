@@ -5,8 +5,6 @@ const STATIC = [
   "popup.html",
   "popup.css",
   "popup.js",
-  "options.html",
-  "options.js",
   "content.js",
   "icons",
 ];
