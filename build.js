@@ -36,7 +36,11 @@ const firefoxManifest = {
   browser_specific_settings: {
     gecko: {
       id: "band-tools@band-tools",
-      strict_min_version: "128.0",
+      strict_min_version: "140.0",
+      data_collection_permissions: {
+        required: ["none"],
+        optional: [],
+      },
     },
   },
 };

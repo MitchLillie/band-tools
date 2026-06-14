@@ -161,12 +161,12 @@ async function populateWeekCalendarDropdown(band_no, defaultCal) {
   try {
     const calData = await send({ type: 'get_calendars', band_no: Number(band_no) });
     const cals = calData.internal_calendars || calData.calendars || calData.items || [];
-    sel.innerHTML = '<option value="">All calendars</option>' + cals.map(c => {
+    setHtml(sel, '<option value="">All calendars</option>' + cals.map(c => {
       const id = c.calendar_id ?? '';
       const name = c.name || (c.is_default ? 'Default' : `Calendar ${id}`);
       const selected = String(id) === String(defaultCal) ? ' selected' : '';
       return `<option value="${id}"${selected}>${escHtml(name)}</option>`;
-    }).join('');
+    }).join(''));
   } catch (_) {}
 }
 
@@ -191,6 +191,7 @@ async function loadWeek(forceRefresh = false) {
         const { ts, items, band_no, calendar_id: cachedCal, days: cachedDays } = cached.week_cache;
         if (Date.now() - ts < WEEK_CACHE_TTL_MS &&
             band_no === currentBandNo && cachedCal === calendar_id && cachedDays === days) {
+          await mergeRsvpCache(items);
           weekItems = items;
           renderWeek(resultsEl, items);
           return;
@@ -222,7 +223,7 @@ async function saveRsvpStatus(schedule_id, status) {
     const { rsvp_status_cache: cur } = await new Promise(r =>
       chrome.storage.session.get('rsvp_status_cache', r));
     const next = { ...(cur || {}), [schedule_id]: status };
-    chrome.storage.session.set({ rsvp_status_cache: next });
+    await chrome.storage.session.set({ rsvp_status_cache: next });
   } catch (_) {}
 }
 
@@ -232,7 +233,7 @@ async function mergeRsvpCache(items) {
       chrome.storage.session.get('rsvp_status_cache', r));
     if (!cache) return;
     for (const ev of items) {
-      if (ev.my_rsvp == null && ev.schedule_id && cache[ev.schedule_id] != null)
+      if (ev.schedule_id && cache[ev.schedule_id] != null)
         ev.my_rsvp = cache[ev.schedule_id];
     }
   } catch (_) {}
@@ -244,7 +245,7 @@ function renderWeek(el, items) {
     return;
   }
 
-  el.innerHTML = items.map((ev, i) => {
+  setHtml(el, items.map((ev, i) => {
     const safeUrl = ev.url.startsWith('https://') ? ev.url : '#';
     const rsvpRow = ev.rsvp_enabled ? `
       <div class="event-rsvp">
@@ -262,7 +263,7 @@ function renderWeek(el, items) {
         ${rsvpRow}
         <div class="event-detail hidden" data-idx="${i}"></div>
       </div>`;
-  }).join('');
+  }).join(''));
 
   el.querySelectorAll('.btn-expand').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -313,7 +314,7 @@ async function loadEventDetail(idx, detailEl) {
     if (data.my_rsvp != null && weekItems[idx]?.my_rsvp == null) {
       weekItems[idx] = { ...weekItems[idx], my_rsvp: data.my_rsvp };
       updateRsvpButtonState(idx, data.my_rsvp);
-      saveRsvpStatus(ev.schedule_id, data.my_rsvp);
+      await saveRsvpStatus(ev.schedule_id, data.my_rsvp);
     }
   } catch (err) {
     setHtml(detailEl, `<p class="err detail-msg">${escHtml(err.message)}</p>`);
@@ -386,15 +387,18 @@ async function handleRsvpClick(btn, idx, newStatus) {
   btn.classList.add(RSVP_ACTIVE_CLASS[newStatus]);
   weekItems[idx] = { ...ev, my_rsvp: newStatus };
 
+  // Save locally first so it persists across popup close/reopen
+  await saveRsvpStatus(scheduleId, newStatus);
+
   try {
     await send({ type: 'update_rsvp', band_no: bandNo, schedule_id: scheduleId, rsvp_type: newStatus, me_user_no: currentMeUserNo });
-    saveRsvpStatus(scheduleId, newStatus);
     // Invalidate cached detail so it reloads with updated counts
     const resultsEl = document.getElementById('week-results');
     const detailEl = resultsEl?.querySelector(`.event-detail[data-idx="${idx}"]`);
     if (detailEl) detailEl.dataset.loaded = '';
   } catch (err) {
-    // Revert
+    // Server update failed — clear local cache and revert
+    await saveRsvpStatus(scheduleId, null);
     weekItems[idx] = ev;
     rsvpRow.querySelectorAll('.rsvp-btn').forEach(b =>
       b.classList.remove('active-going', 'active-not-going', 'active-maybe'));
@@ -437,21 +441,21 @@ async function populateSyncDropdowns(band_no, defaultCal, defaultGroup) {
     ]);
 
     const cals = calData.internal_calendars || calData.calendars || calData.items || [];
-    calSel.innerHTML = cals.map(c => {
+    setHtml(calSel, cals.map(c => {
       const id = c.calendar_id ?? '';
       const name = c.name || (c.is_default ? 'Default' : `Calendar ${id}`);
       const sel = String(id) === String(defaultCal) ? ' selected' : '';
       return `<option value="${id}"${sel}>${escHtml(name)}</option>`;
-    }).join('') || '<option value="">No calendars</option>';
+    }).join('') || '<option value="">No calendars</option>');
 
     const groups = grpData.items || [];
-    grpSel.innerHTML = groups.map(g => {
+    setHtml(grpSel, groups.map(g => {
       const sel = String(g.member_group_id) === String(defaultGroup) ? ' selected' : '';
       return `<option value="${g.member_group_id}"${sel}>${escHtml(g.name)} (${g.member_count})</option>`;
-    }).join('') || '<option value="">No groups</option>';
+    }).join('') || '<option value="">No groups</option>');
   } catch (err) {
-    calSel.innerHTML = '<option value="">Error loading</option>';
-    grpSel.innerHTML = '<option value="">Error loading</option>';
+    setHtml(calSel, '<option value="">Error loading</option>');
+    setHtml(grpSel, '<option value="">Error loading</option>');
   }
 }
 
@@ -644,28 +648,28 @@ async function initSettingsTab() {
 async function loadSettingsDropdowns(band_no, defCal, defGroup) {
   const calSel = document.getElementById('opt-calendar');
   const grpSel = document.getElementById('opt-group');
-  calSel.innerHTML = '<option>Loading…</option>';
-  grpSel.innerHTML = '<option>Loading…</option>';
+  setHtml(calSel, '<option>Loading…</option>');
+  setHtml(grpSel, '<option>Loading…</option>');
   try {
     const calData = await send({ type: 'get_calendars', band_no: Number(band_no) });
     const cals = calData.internal_calendars || calData.calendars || calData.items || [];
-    calSel.innerHTML = cals.map(c => {
+    setHtml(calSel, cals.map(c => {
       const id = c.calendar_id ?? '';
       const name = c.name || (c.is_default ? 'Default' : `Calendar ${id}`);
       return `<option value="${id}"${String(id) === String(defCal) ? ' selected' : ''}>${escHtml(name)}</option>`;
-    }).join('') || '<option value="">No calendars</option>';
+    }).join('') || '<option value="">No calendars</option>');
   } catch (err) {
-    calSel.innerHTML = `<option value="">Error: ${escHtml(err.message)}</option>`;
+    setHtml(calSel, `<option value="">Error: ${escHtml(err.message)}</option>`);
   }
   if (!currentIsAdmin) return;
   try {
     const grpData = await send({ type: 'get_member_groups', band_no: Number(band_no) });
     const groups = grpData.items || [];
-    grpSel.innerHTML = groups.map(g =>
+    setHtml(grpSel, groups.map(g =>
       `<option value="${g.member_group_id}"${String(g.member_group_id) === String(defGroup) ? ' selected' : ''}>${escHtml(g.name)} (${g.member_count})</option>`
-    ).join('') || '<option value="">No groups</option>';
+    ).join('') || '<option value="">No groups</option>');
   } catch (_) {
-    grpSel.innerHTML = '<option value="">Groups need admin access</option>';
+    setHtml(grpSel, '<option value="">Groups need admin access</option>');
   }
 }
 
@@ -674,7 +678,7 @@ document.querySelector('.tab-btn[data-tab="settings"]').addEventListener('click'
 document.getElementById('load-dropdowns').addEventListener('click', () => {
   const band = document.getElementById('opt-band').value;
   if (!band) {
-    document.getElementById('opt-calendar').innerHTML = '<option value="">Enter a band number first</option>';
+    setHtml(document.getElementById('opt-calendar'), '<option value="">Enter a band number first</option>');
     return;
   }
   loadSettingsDropdowns(band, '', '');
