@@ -159,7 +159,7 @@
       display: 'flex', flexDirection: 'column',
     });
 
-    card.innerHTML = `
+    setHtml(card, `
       <div style="background:linear-gradient(160deg,#17171f,#20202e);color:#fff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-shrink:0">
         <strong style="font-size:14px;font-weight:700;letter-spacing:-0.01em">Duplicate Event</strong>
         <button id="_bt_dlg_close" style="background:none;border:none;font-size:18px;cursor:pointer;color:rgba(255,255,255,0.6);padding:0;line-height:1;transition:color 0.15s" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,0.6)'">×</button>
@@ -167,7 +167,7 @@
       <div id="_bt_dlg_body" style="padding:18px;overlay-y:auto">
         <p style="color:#9a9aaa;font-style:italic">Loading event details…</p>
       </div>
-    `;
+    `);
 
     overlay.appendChild(card);
     document.body.appendChild(overlay);
@@ -192,7 +192,7 @@
       const origDurationMs = sched.start_at && sched.end_at
         ? new Date(sched.end_at) - new Date(sched.start_at) : 0;
 
-      bodyEl.innerHTML = `
+      setHtml(bodyEl, `
         <form id="_bt_dlg_form" style="display:flex;flex-direction:column;gap:10px" data-orig-dur="${origDurationMs}">
           <label style="font-size:10.5px;font-weight:600;letter-spacing:0.02em;text-transform:uppercase;color:#9a9aaa;display:flex;flex-direction:column;gap:3px">
             Source Event ID
@@ -225,7 +225,7 @@
           </div>
         </form>
         <div id="_bt_dlg_result" style="margin-top:10px"></div>
-      `;
+      `);
 
       // Wire up smart end-time recalculation
       const startInput = bodyEl.querySelector('#_bt_f_start');
@@ -249,8 +249,8 @@
       });
 
     } catch (err) {
-      bodyEl.innerHTML = `<p style="color:#c62828">${escHtml(err.message)}</p>
-        <button type="button" style="margin-top:8px;padding:6px 14px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer" onclick="this.closest('#_bt_dialog').remove()">Close</button>`;
+      setHtml(bodyEl, `<p style="color:#c62828">${escHtml(err.message)}</p>
+        <button type="button" style="margin-top:8px;padding:6px 14px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer" onclick="this.closest('#_bt_dialog').remove()">Close</button>`);
     }
   }
 
@@ -274,7 +274,7 @@
     overrides.is_secret = true;
     if (!copyLoc) overrides.location = null;
 
-    resultEl.innerHTML = '<p style="color:#555;font-style:italic">Creating duplicate…</p>';
+    setHtml(resultEl, '<p style="color:#555;font-style:italic">Creating duplicate…</p>');
     submitBtn.disabled = true;
 
     try {
@@ -290,7 +290,7 @@
       const evUrl = `https://www.band.us/band/${bandNo}/schedule/${encodeURIComponent(newId)}`;
       window.location.href = evUrl;
     } catch (err) {
-      resultEl.innerHTML = `<p style="color:#c62828">✗ ${escHtml(err.message)}</p>`;
+      setHtml(resultEl, `<p style="color:#c62828">✗ ${escHtml(err.message)}</p>`);
       submitBtn.disabled = false;
     }
   }
@@ -323,6 +323,8 @@
       return d.toISOString().replace('.000Z', 'Z');
     } catch { return val + ':00'; }
   }
+
+  function setHtml(el, html) { el.replaceChildren(); el.insertAdjacentHTML('afterbegin', html); }
 
   function escHtml(str) {
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
