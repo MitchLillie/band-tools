@@ -105,12 +105,12 @@
 
     if (mode === 'detail') {
       Object.assign(btn.style, {
-        background: '#f1f3f4', border: '1px solid #dadce0', borderRadius: '4px',
-        cursor: 'pointer', fontSize: '14px', lineHeight: '1', padding: '3px 7px',
-        marginLeft: '8px', color: '#555', verticalAlign: 'middle',
+        background: '#d42d1f', border: 'none', borderRadius: '7px',
+        cursor: 'pointer', fontSize: '14px', lineHeight: '1', padding: '4px 9px',
+        marginLeft: '10px', color: '#fff', fontWeight: '600', verticalAlign: 'middle',
       });
-      btn.addEventListener('mouseenter', () => { if (!btn.dataset.state) btn.style.background = '#e8eaed'; });
-      btn.addEventListener('mouseleave', () => { if (!btn.dataset.state) btn.style.background = '#f1f3f4'; });
+      btn.addEventListener('mouseenter', () => { if (!btn.dataset.state) btn.style.background = '#b8261a'; });
+      btn.addEventListener('mouseleave', () => { if (!btn.dataset.state) btn.style.background = '#d42d1f'; });
     } else {
       Object.assign(btn.style, {
         background: 'transparent', border: '1px solid transparent', borderRadius: '3px',
@@ -145,25 +145,27 @@
     overlay.id = '_bt_dialog';
     Object.assign(overlay.style, {
       position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
-      background: 'rgba(0,0,0,0.5)', zIndex: '999999',
+      background: 'rgba(0,0,0,0.45)', zIndex: '999999',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontFamily: '-apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif',
     });
 
     const card = document.createElement('div');
     Object.assign(card.style, {
-      background: '#fff', borderRadius: '8px', padding: '24px',
-      minWidth: '420px', maxWidth: '520px', maxHeight: '90vh', overflowY: 'auto',
-      boxShadow: '0 4px 24px rgba(0,0,0,0.2)', fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
-      fontSize: '13px', color: '#222',
+      background: '#fff', borderRadius: '10px', overflow: 'hidden',
+      minWidth: '430px', maxWidth: '530px', maxHeight: '90vh',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+      fontSize: '13px', color: '#15151f',
+      display: 'flex', flexDirection: 'column',
     });
 
     card.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <strong style="font-size:15px">Duplicate Event</strong>
-        <button id="_bt_dlg_close" style="background:none;border:none;font-size:20px;cursor:pointer;color:#999;padding:0;line-height:1">×</button>
+      <div style="background:linear-gradient(160deg,#17171f,#20202e);color:#fff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-shrink:0">
+        <strong style="font-size:14px;font-weight:700;letter-spacing:-0.01em">Duplicate Event</strong>
+        <button id="_bt_dlg_close" style="background:none;border:none;font-size:18px;cursor:pointer;color:rgba(255,255,255,0.6);padding:0;line-height:1;transition:color 0.15s" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,0.6)'">×</button>
       </div>
-      <div id="_bt_dlg_body">
-        <p style="color:#888;font-style:italic">Loading event details…</p>
+      <div id="_bt_dlg_body" style="padding:18px;overlay-y:auto">
+        <p style="color:#9a9aaa;font-style:italic">Loading event details…</p>
       </div>
     `;
 
@@ -191,40 +193,38 @@
         ? new Date(sched.end_at) - new Date(sched.start_at) : 0;
 
       bodyEl.innerHTML = `
-        <form id="_bt_dlg_form" style="display:flex;flex-direction:column;gap:8px" data-orig-dur="${origDurationMs}">
-          <label style="font-size:11px;color:#888;font-weight:600">
+        <form id="_bt_dlg_form" style="display:flex;flex-direction:column;gap:10px" data-orig-dur="${origDurationMs}">
+          <label style="font-size:10.5px;font-weight:600;letter-spacing:0.02em;text-transform:uppercase;color:#9a9aaa;display:flex;flex-direction:column;gap:3px">
             Source Event ID
-            <input type="text" value="${escAttr(schedId)}" readonly style="width:100%;padding:5px 7px;border:1px solid #ddd;border-radius:4px;font-size:13px;background:#f5f5f5;color:#888">
+            <input type="text" value="${escAttr(schedId)}" readonly style="width:100%;padding:6px 9px;border:1px solid #dcdce6;border-radius:7px;font-size:13px;background:#f4f5f8;color:#9a9aaa;text-transform:none;font-weight:400;letter-spacing:0">
           </label>
-          <label style="font-size:11px;color:#888;font-weight:600">
+          <label style="font-size:10.5px;font-weight:600;letter-spacing:0.02em;text-transform:uppercase;color:#9a9aaa;display:flex;flex-direction:column;gap:3px">
             Name
-            <input type="text" id="_bt_f_name" value="${escAttr(sched.name || '')}" style="width:100%;padding:5px 7px;border:1px solid #ccc;border-radius:4px;font-size:13px">
+            <input type="text" id="_bt_f_name" value="${escAttr(sched.name || '')}" style="width:100%;padding:6px 9px;border:1px solid #dcdce6;border-radius:7px;font-size:13px;color:#15151f;text-transform:none;font-weight:400;letter-spacing:0;transition:border-color 0.15s,box-shadow 0.15s" onfocus="this.style.borderColor='#d42d1f';this.style.boxShadow='0 0 0 3px rgba(212,45,31,0.15)';this.style.outline='none'" onblur="this.style.borderColor='#dcdce6';this.style.boxShadow='none'">
           </label>
-          <div style="display:flex;gap:8px">
-            <label style="flex:1;font-size:11px;color:#888;font-weight:600">
+          <div style="display:flex;gap:10px">
+            <label style="flex:1;font-size:10.5px;font-weight:600;letter-spacing:0.02em;text-transform:uppercase;color:#9a9aaa;display:flex;flex-direction:column;gap:3px">
               Start At
-              <input type="datetime-local" id="_bt_f_start" value="${escAttr(toDatetimeLocal(sched.start_at))}" style="width:100%;padding:5px 7px;border:1px solid #ccc;border-radius:4px;font-size:13px">
+              <input type="datetime-local" id="_bt_f_start" value="${escAttr(toDatetimeLocal(sched.start_at))}" style="width:100%;padding:6px 9px;border:1px solid #dcdce6;border-radius:7px;font-size:13px;color:#15151f;text-transform:none;font-weight:400;letter-spacing:0;transition:border-color 0.15s,box-shadow 0.15s" onfocus="this.style.borderColor='#d42d1f';this.style.boxShadow='0 0 0 3px rgba(212,45,31,0.15)';this.style.outline='none'" onblur="this.style.borderColor='#dcdce6';this.style.boxShadow='none'">
             </label>
-            <label style="flex:1;font-size:11px;color:#888;font-weight:600">
+            <label style="flex:1;font-size:10.5px;font-weight:600;letter-spacing:0.02em;text-transform:uppercase;color:#9a9aaa;display:flex;flex-direction:column;gap:3px">
               End At
-              <input type="datetime-local" id="_bt_f_end" value="${escAttr(toDatetimeLocal(sched.end_at))}" style="width:100%;padding:5px 7px;border:1px solid #ccc;border-radius:4px;font-size:13px">
+              <input type="datetime-local" id="_bt_f_end" value="${escAttr(toDatetimeLocal(sched.end_at))}" style="width:100%;padding:6px 9px;border:1px solid #dcdce6;border-radius:7px;font-size:13px;color:#15151f;text-transform:none;font-weight:400;letter-spacing:0;transition:border-color 0.15s,box-shadow 0.15s" onfocus="this.style.borderColor='#d42d1f';this.style.boxShadow='0 0 0 3px rgba(212,45,31,0.15)';this.style.outline='none'" onblur="this.style.borderColor='#dcdce6';this.style.boxShadow='none'">
             </label>
           </div>
-          <label style="font-size:11px;color:#888;font-weight:600">
+          <label style="font-size:10.5px;font-weight:600;letter-spacing:0.02em;text-transform:uppercase;color:#9a9aaa;display:flex;flex-direction:column;gap:3px">
             Description
-            <textarea id="_bt_f_desc" rows="3" style="width:100%;padding:5px 7px;border:1px solid #ccc;border-radius:4px;font-size:13px;resize:vertical;font-family:inherit">${escAttr(sched.description || '')}</textarea>
+            <textarea id="_bt_f_desc" rows="3" style="width:100%;padding:6px 9px;border:1px solid #dcdce6;border-radius:7px;font-size:13px;resize:vertical;font-family:inherit;color:#15151f;text-transform:none;font-weight:400;letter-spacing:0;transition:border-color 0.15s,box-shadow 0.15s" onfocus="this.style.borderColor='#d42d1f';this.style.boxShadow='0 0 0 3px rgba(212,45,31,0.15)';this.style.outline='none'" onblur="this.style.borderColor='#dcdce6';this.style.boxShadow='none'">${escAttr(sched.description || '')}</textarea>
           </label>
-          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-            <label style="display:flex;align-items:center;gap:4px;font-size:13px;color:#222;cursor:pointer">
-              <input type="checkbox" id="_bt_f_copyLoc" checked> Copy location
-            </label>
-          </div>
-          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
-            <button type="button" id="_bt_dlg_cancel" style="padding:6px 14px;border:1px solid #ccc;border-radius:4px;background:#fff;color:#555;font-size:13px;cursor:pointer">Cancel</button>
-            <button type="submit" style="padding:6px 14px;border:none;border-radius:4px;background:#1a73e8;color:#fff;font-size:13px;cursor:pointer;font-weight:600">Create Duplicate</button>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#15151f;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400">
+            <input type="checkbox" id="_bt_f_copyLoc" checked> Copy location
+          </label>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+            <button type="button" id="_bt_dlg_cancel" style="padding:7px 15px;border:none;border-radius:7px;background:#eef0f3;color:#5b5b6b;font-size:12.5px;font-weight:600;cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='#e2e5ea'" onmouseout="this.style.background='#eef0f3'">Cancel</button>
+            <button type="submit" style="padding:7px 15px;border:none;border-radius:7px;background:#15151f;color:#fff;font-size:12.5px;font-weight:600;cursor:pointer;transition:background 0.15s,box-shadow 0.15s" onmouseover="this.style.background='#2c2c3a';this.style.boxShadow='0 2px 8px rgba(23,23,31,0.22)'" onmouseout="this.style.background='#15151f';this.style.boxShadow='none'">Create Duplicate</button>
           </div>
         </form>
-        <div id="_bt_dlg_result" style="margin-top:8px"></div>
+        <div id="_bt_dlg_result" style="margin-top:10px"></div>
       `;
 
       // Wire up smart end-time recalculation
