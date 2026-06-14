@@ -6,5 +6,5 @@ test-results/
 playwright-report/
 blob-report/
 
-# Build output (esbuild bundles src/background.js -> background.js)
-/background.js
+# Build output (the loadable extension)
+/dist/

@@ -69,12 +69,14 @@ beforeAll(async () => {
 });
 
 describe("background.js message handlers (mocked chrome + fetch)", () => {
-  it("check_auth returns the secret", async () => {
-    expect(await send({ type: "check_auth" })).toEqual({ ok: true, result: "testsecret" });
+  it("check_auth returns the secret (quotes stripped)", async () => {
+    const r = await send({ type: "check_auth" });
+    expect(r).toEqual({ ok: true, result: "testsecret" });
   });
 
   it("get_calendars", async () => {
     const r = await send({ type: "get_calendars", band_no: 1 });
+    expect(r.ok).toBe(true);
     expect(r.result.internal_calendars).toHaveLength(1);
   });
 
@@ -83,28 +85,40 @@ describe("background.js message handlers (mocked chrome + fetch)", () => {
     expect(r.result.items[0].name).toBe("Group");
   });
 
-  it("check_admin → true", async () => {
-    expect((await send({ type: "check_admin", band_no: 1 })).result).toBe(true);
+  it("check_admin → true when groups load", async () => {
+    const r = await send({ type: "check_admin", band_no: 1 });
+    expect(r.result).toBe(true);
   });
 
-  it("detect_me", async () => {
-    expect((await send({ type: "detect_me", band_no: 1 })).result).toEqual({ user_no: 7, name: "Me" });
+  it("detect_me resolves owner user_no/name", async () => {
+    const r = await send({ type: "detect_me", band_no: 1 });
+    expect(r.result).toEqual({ user_no: 7, name: "Me" });
   });
 
-  it("band_week", async () => {
+  it("band_week maps events with my_rsvp + url", async () => {
     const r = await send({ type: "band_week", band_no: 1, days: 3650 });
-    expect(r.result[0]).toMatchObject({ name: "Event", schedule_id: SCHEDULE.schedule_id, my_rsvp: 1 });
+    expect(r.ok).toBe(true);
+    expect(r.result[0]).toMatchObject({
+      name: "Event",
+      schedule_id: SCHEDULE.schedule_id,
+      my_rsvp: 1,
+    });
     expect(r.result[0].url).toContain("/schedule/");
   });
 
-  it("rsvp_status", async () => {
-    const r = await send({ type: "rsvp_status", band_no: 1, schedule_id: SCHEDULE.schedule_id, me_name: "Alice" });
+  it("rsvp_status buckets attendees and detects my status", async () => {
+    const r = await send({
+      type: "rsvp_status",
+      band_no: 1,
+      schedule_id: SCHEDULE.schedule_id,
+      me_name: "Alice",
+    });
     expect(r.result.event_name).toBe("Event");
     expect(r.result.going).toContain("Alice");
     expect(r.result.my_rsvp).toBe(1);
   });
 
-  it("update_rsvp", async () => {
+  it("update_rsvp posts a state", async () => {
     const r = await send({
       type: "update_rsvp",
       band_no: 1,
@@ -115,19 +129,35 @@ describe("background.js message handlers (mocked chrome + fetch)", () => {
     expect(r.ok).toBe(true);
   });
 
-  it("sync_group_dry", async () => {
-    const r = await send({ type: "sync_group_dry", band_no: 1, calendar_id: 2, group_id: 1, days: 3650, me_user_no: null });
+  it("sync_group_dry finds the missing member", async () => {
+    const r = await send({
+      type: "sync_group_dry",
+      band_no: 1,
+      calendar_id: 2,
+      group_id: 1,
+      days: 3650,
+      me_user_no: null,
+    });
+    expect(r.ok).toBe(true);
     expect(r.result.group_size).toBe(1);
     expect(r.result.updates_needed).toBe(1);
     expect(r.result.updates[0].missing_names).toContain("Bob");
   });
 
-  it("sync_group_apply", async () => {
-    const r = await send({ type: "sync_group_apply", band_no: 1, calendar_id: 2, group_id: 1, days: 3650, me_user_no: null });
+  it("sync_group_apply applies the update", async () => {
+    const r = await send({
+      type: "sync_group_apply",
+      band_no: 1,
+      calendar_id: 2,
+      group_id: 1,
+      days: 3650,
+      me_user_no: null,
+    });
+    expect(r.ok).toBe(true);
     expect(r.result.applied_count).toBe(1);
   });
 
-  it("unknown type → ok:false", async () => {
+  it("unknown message type → ok:false with an error", async () => {
     const r = await send({ type: "definitely_not_a_real_type" });
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/unknown message type/i);

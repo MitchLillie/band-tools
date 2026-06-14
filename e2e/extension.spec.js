@@ -2,13 +2,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test as base, chromium, expect } from "@playwright/test";
 
-const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const extDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist");
 
 const test = base.extend({
   context: async ({}, use) => {
     const context = await chromium.launchPersistentContext("", {
       channel: "chromium", // full build (not the headless shell) is required to load extensions
-      args: [`--disable-extensions-except=${root}`, `--load-extension=${root}`, "--no-sandbox"],
+      args: [`--disable-extensions-except=${extDir}`, `--load-extension=${extDir}`, "--no-sandbox"],
     });
     await context.addCookies([
       { name: "secretKey", value: '"e2e-secret"', domain: ".band.us", path: "/", httpOnly: true, secure: true },
@@ -30,7 +30,7 @@ async function openExtensionPage(context, extensionId) {
   return page;
 }
 
-test("service worker registers", async ({ context, extensionId }) => {
+test("service worker (module + bandstand import) registers", async ({ context, extensionId }) => {
   expect(extensionId).toMatch(/^[a-z]{32}$/);
   const [sw] = context.serviceWorkers();
   expect(sw.url()).toContain("background.js");
@@ -42,7 +42,7 @@ test("check_auth reads the HttpOnly secretKey via chrome.cookies", async ({ cont
   expect(res).toEqual({ ok: true, result: "e2e-secret" });
 });
 
-test("get_calendars flows through bandstand in the real service worker", async ({ context, extensionId }) => {
+test("get_calendars flows through bandstand in the real SW (API mocked)", async ({ context, extensionId }) => {
   await context.route(/api-.*\.band\.us\/.*get_calendars/, (route) =>
     route.fulfill({
       status: 200,
