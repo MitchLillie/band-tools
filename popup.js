@@ -35,13 +35,6 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   });
 });
 
-// ---- Options link ----
-
-document.getElementById('options-link').addEventListener('click', e => {
-  e.preventDefault();
-  chrome.runtime.openOptionsPage();
-});
-
 // ---- Utilities ----
 
 function setHtml(el, html) { el.innerHTML = html; }
@@ -96,6 +89,14 @@ async function detectBandNo() {
 let currentBandNo = null;
 let currentMeUserNo = null;
 let currentMeName = null;
+let currentIsAdmin = false;
+
+// Admin-only surfaces (Admin tab + the Sync-Group settings) are hidden until we
+// confirm the user is a band admin.
+function applyAdminVisibility(isAdmin) {
+  (isAdmin ? show : hide)(document.getElementById('admin-tab-btn'));
+  document.querySelectorAll('.admin-only').forEach(el => (isAdmin ? show : hide)(el));
+}
 
 async function init() {
   try {
@@ -120,6 +121,10 @@ async function init() {
   currentMeName   = localMe.me_name   || null;
 
   document.getElementById('band-info').textContent = 'Band Tools';
+  try {
+    const self = await chrome.management.getSelf();
+    if (self?.installType === 'development') show(document.getElementById('env-badge'));
+  } catch (_) {}
   document.getElementById('week-days').value = settings.week_days;
   document.getElementById('sync-days').value = settings.sync_days;
 
@@ -127,7 +132,7 @@ async function init() {
     setHtml(document.getElementById('week-results'),
       '<p class="err">No band configured. <a href="#" id="go-settings">Open Settings</a> to set your band number.</p>');
     document.getElementById('go-settings')?.addEventListener('click', e => {
-      e.preventDefault(); chrome.runtime.openOptionsPage();
+      e.preventDefault(); switchToTab('settings');
     });
     return;
   }
@@ -138,10 +143,10 @@ async function init() {
     isAdmin = await send({ type: 'check_admin', band_no: currentBandNo });
   } catch (_) {}
 
-  if (isAdmin) {
-    show(document.getElementById('tabs'));
+  currentIsAdmin = isAdmin;
+  applyAdminVisibility(isAdmin);
+  if (isAdmin)
     populateSyncDropdowns(currentBandNo, settings.default_calendar, settings.default_group);
-  }
 
   await populateWeekCalendarDropdown(currentBandNo, settings.default_calendar);
   loadWeek();
@@ -464,7 +469,7 @@ document.getElementById('sync-dry').addEventListener('click', async () => {
 
   syncDryRunResult = null;
   hide(applyBtn);
-  setHtml(resultsEl, '<p class="msg">Running dry run… (this may take a moment)</p>');
+  setHtml(resultsEl, '<p class="msg">Checking for gaps… (this may take a moment)</p>');
 
   try {
     const result = await send({ type: 'sync_group_dry', band_no: currentBandNo, calendar_id, group_id, days, me_user_no: currentMeUserNo });
@@ -536,12 +541,7 @@ document.getElementById('copy-load-source').addEventListener('click', async () =
     document.getElementById('copy-start').value = (sched.start_at || '').replace('T', ' ').slice(0, 16);
     document.getElementById('copy-end').value = (sched.end_at || '').replace('T', ' ').slice(0, 16);
     document.getElementById('copy-description').value = sched.description || '';
-    document.getElementById('copy-all-day').checked = !!sched.is_all_day;
-    document.getElementById('copy-is-secret').checked = !!sched.is_secret;
-    document.getElementById('copy-announce').checked = false;
     document.getElementById('copy-copy-loc').checked = true;
-    document.getElementById('copy-location').value = sched.location?.name || sched.location?.address || '';
-    document.getElementById('copy-location').dataset.original = sched.location?.name || sched.location?.address || '';
 
     show(document.getElementById('copy-fields'));
     setHtml(resultEl, `<p class="ok">Loaded: ${escHtml(sched.name || '(unnamed)')}</p>`);
@@ -580,19 +580,15 @@ document.getElementById('copy-go').addEventListener('click', async () => {
   const start = document.getElementById('copy-start').value.trim();
   const end = document.getElementById('copy-end').value.trim();
   const desc = document.getElementById('copy-description').value.trim();
-  const allDay = document.getElementById('copy-all-day').checked;
-  const isSecret = document.getElementById('copy-is-secret').checked;
-  const announce = document.getElementById('copy-announce').checked;
-  const loc = document.getElementById('copy-location').value.trim();
-  const origLoc = document.getElementById('copy-location').dataset.original || '';
+  const copyLoc = document.getElementById('copy-copy-loc').checked;
 
   if (name) overrides.name = name;
   if (start) overrides.start_at = toUtcIso(start);
   if (end) overrides.end_at = toUtcIso(end);
   if (desc) overrides.description = desc;
-  overrides.is_all_day = allDay;
-  overrides.is_secret = isSecret;
-  if (loc !== origLoc) overrides.location = { name: loc };
+  overrides.is_all_day = false;
+  overrides.is_secret = true;
+  if (!copyLoc) overrides.location = null;
 
   if (mode === 'update') {
     setHtml(resultEl, '<p class="msg">Updating destination event…</p>');
@@ -625,4 +621,75 @@ document.getElementById('copy-go').addEventListener('click', async () => {
       setHtml(resultEl, `<p class="err">${escHtml(err.message)}</p>`);
     }
   }
+});
+
+// ---- Settings tab ----
+
+function switchToTab(name) {
+  document.querySelector(`.tab-btn[data-tab="${name}"]`)?.click();
+}
+
+let settingsInited = false;
+async function initSettingsTab() {
+  if (settingsInited) return;
+  settingsInited = true;
+  const s = await loadSettings();
+  document.getElementById('opt-band').value = s.default_band || (currentBandNo || '');
+  document.getElementById('opt-week-days').value = s.week_days;
+  document.getElementById('opt-sync-days').value = s.sync_days;
+  const band = document.getElementById('opt-band').value;
+  if (band) loadSettingsDropdowns(band, s.default_calendar, s.default_group);
+}
+
+async function loadSettingsDropdowns(band_no, defCal, defGroup) {
+  const calSel = document.getElementById('opt-calendar');
+  const grpSel = document.getElementById('opt-group');
+  calSel.innerHTML = '<option>Loading…</option>';
+  grpSel.innerHTML = '<option>Loading…</option>';
+  try {
+    const calData = await send({ type: 'get_calendars', band_no: Number(band_no) });
+    const cals = calData.internal_calendars || calData.calendars || calData.items || [];
+    calSel.innerHTML = cals.map(c => {
+      const id = c.calendar_id ?? '';
+      const name = c.name || (c.is_default ? 'Default' : `Calendar ${id}`);
+      return `<option value="${id}"${String(id) === String(defCal) ? ' selected' : ''}>${escHtml(name)}</option>`;
+    }).join('') || '<option value="">No calendars</option>';
+  } catch (err) {
+    calSel.innerHTML = `<option value="">Error: ${escHtml(err.message)}</option>`;
+  }
+  if (!currentIsAdmin) return;
+  try {
+    const grpData = await send({ type: 'get_member_groups', band_no: Number(band_no) });
+    const groups = grpData.items || [];
+    grpSel.innerHTML = groups.map(g =>
+      `<option value="${g.member_group_id}"${String(g.member_group_id) === String(defGroup) ? ' selected' : ''}>${escHtml(g.name)} (${g.member_count})</option>`
+    ).join('') || '<option value="">No groups</option>';
+  } catch (_) {
+    grpSel.innerHTML = '<option value="">Groups need admin access</option>';
+  }
+}
+
+document.querySelector('.tab-btn[data-tab="settings"]').addEventListener('click', initSettingsTab);
+
+document.getElementById('load-dropdowns').addEventListener('click', () => {
+  const band = document.getElementById('opt-band').value;
+  if (!band) {
+    document.getElementById('opt-calendar').innerHTML = '<option value="">Enter a band number first</option>';
+    return;
+  }
+  loadSettingsDropdowns(band, '', '');
+});
+
+document.getElementById('save-btn').addEventListener('click', () => {
+  chrome.storage.sync.set({
+    default_band:     document.getElementById('opt-band').value,
+    default_calendar: document.getElementById('opt-calendar').value,
+    default_group:    document.getElementById('opt-group').value,
+    week_days: Number(document.getElementById('opt-week-days').value) || 7,
+    sync_days: Number(document.getElementById('opt-sync-days').value) || 120,
+  }, () => {
+    const st = document.getElementById('status');
+    st.textContent = 'Saved';
+    setTimeout(() => { st.textContent = ''; }, 2000);
+  });
 });

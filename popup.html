@@ -8,18 +8,24 @@
 <body>
   <div id="app">
     <div id="header">
-      <span id="band-info">Band Tools</span>
-      <a href="#" id="options-link" title="Settings">⚙</a>
+      <div class="brand">
+        <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10h3v-3l-3.5 -3.5a6 6 0 0 1 8 8l6 6a2 2 0 0 1 -3 3l-6 -6a6 6 0 0 1 -8 -8l3.5 3.5"/></svg></span>
+        <div id="wordmark">
+          <span id="band-info">Band Tools</span>
+        </div>
+        <span id="env-badge" class="hidden">DEV</span>
+      </div>
     </div>
 
     <div id="auth-error" class="hidden">
       <p>Not logged in. <a href="https://www.band.us" target="_blank">Log in to band.us</a> first.</p>
     </div>
 
-    <!-- Tab nav: hidden for non-admins, shown for admins -->
-    <nav id="tabs" class="hidden">
+    <!-- Tab nav. Admin tab is revealed only for band admins. -->
+    <nav id="tabs">
       <button class="tab-btn active" data-tab="general">General</button>
-      <button class="tab-btn" data-tab="admin">Admin</button>
+      <button class="tab-btn hidden" id="admin-tab-btn" data-tab="admin">Admin</button>
+      <button class="tab-btn" data-tab="settings">Settings</button>
     </nav>
 
     <!-- General tab (all users) -->
@@ -35,8 +41,8 @@
     </div>
 
     <!-- Admin tab (admins only) -->
-    <div id="tab-admin" class="tab-panel hidden">
-      <p class="tab-desc">Invite new group members to upcoming events.</p>
+    <div id="tab-admin" class="tab-panel tab-panel--admin hidden">
+      <p class="tab-desc">Keep events in sync with your group roster. <strong>Check</strong> to preview which upcoming events are missing group members, then <strong>Apply</strong> to send the invites.</p>
       <div class="controls">
         <label>Calendar
           <select id="sync-calendar"><option value="">— load —</option></select>
@@ -46,7 +52,7 @@
         </label>
         <label>Days<input type="number" id="sync-days" value="120" min="1" max="730"></label>
         <div class="btn-row">
-          <button id="sync-dry">Dry Run</button>
+          <button id="sync-dry">Check</button>
           <button id="sync-apply" class="danger hidden">Apply</button>
         </div>
       </div>
@@ -93,6 +99,36 @@
             <button id="copy-go" style="margin-left:auto">Copy Event</button>
           </div>
           <div id="copy-result" class="results" style="margin-top:6px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings tab (all users) -->
+    <div id="tab-settings" class="tab-panel hidden">
+      <div class="settings">
+        <label>Band Number
+          <input type="text" inputmode="numeric" id="opt-band" placeholder="87436335">
+        </label>
+        <p class="field-hint">Found in your band.us URL: band.us/band/<strong>87436335</strong>/…</p>
+        <button id="load-dropdowns" class="ghost">Load Calendars &amp; Groups</button>
+
+        <label>Default Calendar
+          <select id="opt-calendar"><option value="">— load above —</option></select>
+        </label>
+        <label class="admin-only hidden">Default Group
+          <select id="opt-group"><option value="">— load above —</option></select>
+        </label>
+        <div class="field-row">
+          <label>My Events · days
+            <input type="number" id="opt-week-days" value="7" min="1" max="365">
+          </label>
+          <label class="admin-only hidden">Sync window · days
+            <input type="number" id="opt-sync-days" value="120" min="1" max="730">
+          </label>
+        </div>
+        <div class="btn-row">
+          <button id="save-btn">Save Settings</button>
+          <span id="status"></span>
         </div>
       </div>
     </div>

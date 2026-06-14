@@ -20,7 +20,7 @@ A Chrome extension for [band.us](https://band.us) groups. Adds three features th
 
 ## First-time setup
 1. Make sure you're logged into band.us in Chrome
-2. Click the Band Tools icon → open **Settings** (⚙)
+2. Click the Band Tools icon → open the **Settings** tab
 3. Enter your band number (found in the URL: `band.us/band/XXXXXXXX/...`)
 4. Click **Load Calendars & Groups** to set defaults
 
@@ -52,10 +52,9 @@ band-tools/
   src/background.js  Service worker source (imports bandstand/browser)
   build.js           esbuild bundle + static-file copy -> dist/
   manifest.json      MV3 manifest (module service worker)
-  popup.html/js/css  Toolbar popup UI
-  options.html/js    Settings page
+  popup.html/js/css  Toolbar popup UI (General / Admin / Settings tabs)
   content.js         Auto-detects band_no and user identity from the page
-  icons/             PNG icons (16, 48, 128px)
+  icons/             icon.svg source + PNG icons (16, 48, 128px)
   dist/              Built extension, what you load unpacked (gitignored)
 ```
 
