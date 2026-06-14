@@ -156,7 +156,10 @@ var BandClient = class _BandClient {
     const hmacKey = await importHmacKey(secret, crypto);
     const cfg = {
       store,
-      fetchImpl: options.fetch ?? globalThis.fetch,
+      // Bind the default global fetch to the global scope. Calling it detached
+      // (as `this.cfg.fetchImpl(...)`) throws "Illegal invocation" in browsers and
+      // service workers, where fetch requires its `this` to be the global object.
+      fetchImpl: options.fetch ?? globalThis.fetch.bind(globalThis),
       crypto,
       apiBase: options.apiBase ?? DEFAULT_API_BASE,
       akey: options.akey ?? DEFAULT_AKEY,
@@ -257,7 +260,7 @@ var BandClient = class _BandClient {
   }
   getMembers(bandNo) {
     return this.call("GET", "/v2.0.0/get_members_of_band_with_filter", {
-      params: { band_no: bandNo, filter: "member" }
+      params: { band_no: bandNo, filter: "add_schedule_sharer" }
     });
   }
   getMemberGroups(bandNo) {

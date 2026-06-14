@@ -60,12 +60,7 @@ test("check_auth reads the HttpOnly secretKey via chrome.cookies", async ({ cont
   expect(res).toEqual({ ok: true, result: "e2e-secret" });
 });
 
-// Playwright does not route requests originating from an *extension* background
-// service worker, so we can't mock the BAND API at this layer — the SW would hit
-// the real host. bandstand's request/response path (get_calendars and friends) is
-// covered by the headless vitest suite, which mocks fetch through the real bundle.
-// This stays as documentation of intent in case Playwright gains extension-SW routing.
-test.skip("get_calendars flows through bandstand in the real SW (needs SW network routing)", async ({
+test("get_calendars flows through bandstand in the real SW (API mocked)", async ({
   context,
   extensionId,
 }) => {
