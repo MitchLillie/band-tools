@@ -1,0 +1,15 @@
+{
+  "name": "band-tools",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Dev tooling for the Band Tools Chrome extension. The extension itself is buildless plain JS — this is only for tests.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --testTimeout=30000",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "sinon-chrome": "^3.0.1",
+    "vitest": "^2.1.8"
+  }
+}
