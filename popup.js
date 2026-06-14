@@ -55,6 +55,16 @@ function fmtDate(isoStr) {
   } catch (_) { return isoStr?.slice(0, 10) || ''; }
 }
 
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function fmtCopy(ev) {
+  try {
+    const d = new Date(ev.start_at);
+    return `${DAYS[d.getDay()]} ${MONTHS[d.getMonth()]} ${d.getDate()} — ${ev.name}`;
+  } catch (_) { return `${ev.when} — ${ev.name}`; }
+}
+
 function escHtml(str) {
   return String(str || '')
     .replace(/&/g, '&amp;')
@@ -239,6 +249,7 @@ function renderWeek(el, items) {
         <div class="event-header">
           <span class="event-when">${escHtml(ev.when)}</span>
           <a href="${safeUrl}" target="_blank" rel="noopener" class="event-name">${escHtml(ev.name)}</a>
+          <button class="btn-copy-event" data-idx="${i}" title="Copy event">⎘</button>
           <button class="btn-expand" data-idx="${i}" title="Show RSVP details">›</button>
         </div>
         ${rsvpRow}
@@ -258,6 +269,15 @@ function renderWeek(el, items) {
         btn.classList.add('expanded');
         loadEventDetail(idx, detailEl);
       }
+    });
+  });
+
+  el.querySelectorAll('.btn-copy-event').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const ev = weekItems[Number(btn.dataset.idx)];
+      if (!ev) return;
+      await navigator.clipboard.writeText(fmtCopy(ev));
+      flashCopied(btn, '⎘');
     });
   });
 
@@ -393,15 +413,18 @@ document.getElementById('week-days').addEventListener('input', () => {
   weekDebounce = setTimeout(() => loadWeek(true), 600);
 });
 
-// Copy as plain text
-document.getElementById('week-copy').addEventListener('click', async () => {
-  if (!weekItems.length) return;
-  const text = weekItems.map(ev => `${ev.when} - ${ev.name} - ${ev.url}`).join('\n');
-  await navigator.clipboard.writeText(text);
-  const btn = document.getElementById('week-copy');
+async function flashCopied(btn, originalText) {
   btn.classList.add('copied');
   btn.textContent = '✓';
-  setTimeout(() => { btn.classList.remove('copied'); btn.textContent = '⎘'; }, 1500);
+  setTimeout(() => { btn.classList.remove('copied'); btn.textContent = originalText; }, 1500);
+}
+
+// Copy all as plain text
+document.getElementById('week-copy').addEventListener('click', async () => {
+  if (!weekItems.length) return;
+  const text = weekItems.map(fmtCopy).join('\n');
+  await navigator.clipboard.writeText(text);
+  flashCopied(document.getElementById('week-copy'), '⎘');
 });
 
 // ---- Sync Group (Admin tab) ----
