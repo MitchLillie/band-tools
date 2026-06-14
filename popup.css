@@ -51,6 +51,10 @@ nav#tabs {
 .tab-btn:hover { color: #1a73e8; }
 
 .tab-panel { padding: 10px 12px; }
+.tab-panel--admin {
+  background: #fffbf0;
+  border-top: 3px solid #f5a623;
+}
 
 .top-bar {
   display: flex;

@@ -35,8 +35,8 @@
     </div>
 
     <!-- Admin tab (admins only) -->
-    <div id="tab-admin" class="tab-panel hidden">
-      <p class="tab-desc">Invite new group members to upcoming events.</p>
+    <div id="tab-admin" class="tab-panel tab-panel--admin hidden">
+      <p class="tab-desc">Keep events in sync with your group roster. <strong>Check</strong> to preview which upcoming events are missing group members, then <strong>Apply</strong> to send the invites.</p>
       <div class="controls">
         <label>Calendar
           <select id="sync-calendar"><option value="">— load —</option></select>
@@ -46,7 +46,7 @@
         </label>
         <label>Days<input type="number" id="sync-days" value="120" min="1" max="730"></label>
         <div class="btn-row">
-          <button id="sync-dry">Dry Run</button>
+          <button id="sync-dry">Check</button>
           <button id="sync-apply" class="danger hidden">Apply</button>
         </div>
       </div>
