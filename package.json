@@ -1,0 +1,24 @@
+{
+  "name": "band-tools",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Chrome extension for band.us groups.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "pree2e": "npm run build",
+    "e2e": "playwright test",
+    "e2e:install": "playwright install chromium"
+  },
+  "dependencies": {
+    "bandstand": "^0.2.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1",
+    "esbuild": "^0.24.2",
+    "sinon-chrome": "^3.0.1",
+    "vitest": "^2.1.8"
+  }
+}

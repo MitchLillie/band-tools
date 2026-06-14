@@ -1,2 +1,10 @@
 .DS_Store
 *.zip
+node_modules/
+coverage/
+test-results/
+playwright-report/
+blob-report/
+
+# Build output (the loadable extension)
+/dist/
