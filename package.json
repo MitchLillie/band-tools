@@ -5,7 +5,7 @@
   "description": "Dev tooling for the Band Tools Chrome extension. The extension itself is buildless plain JS — this is only for tests.",
   "type": "module",
   "scripts": {
-    "test": "vitest run --testTimeout=30000",
+    "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
     "e2e:install": "playwright install chromium"
