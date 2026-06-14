@@ -451,7 +451,7 @@ document.getElementById('sync-dry').addEventListener('click', async () => {
 
   syncDryRunResult = null;
   hide(applyBtn);
-  setHtml(resultsEl, '<p class="msg">Running dry run… (this may take a moment)</p>');
+  setHtml(resultsEl, '<p class="msg">Checking for gaps… (this may take a moment)</p>');
 
   try {
     const result = await send({ type: 'sync_group_dry', band_no: currentBandNo, calendar_id, group_id, days, me_user_no: currentMeUserNo });
