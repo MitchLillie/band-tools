@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+      - run: npm ci
+      # Headless unit tests of the service worker (mocked chrome + fetch).
+      - run: npm test
+      # Real-Chromium E2E: loads the unpacked extension and drives the popup.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e

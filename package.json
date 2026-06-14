@@ -6,9 +6,12 @@
   "type": "module",
   "scripts": {
     "test": "vitest run --testTimeout=30000",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "e2e": "playwright test",
+    "e2e:install": "playwright install chromium"
   },
   "devDependencies": {
+    "@playwright/test": "^1.49.1",
     "sinon-chrome": "^3.0.1",
     "vitest": "^2.1.8"
   }
