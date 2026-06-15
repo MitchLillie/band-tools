@@ -79,36 +79,9 @@ always have a local copy.
 
 ### One-time setup
 
-**Chrome Web Store** ([Google's docs](https://developer.chrome.com/docs/webstore/one_time_payment)) — full walkthrough:
-
-1. **Upload the listing manually.** From the [CWS Developer Dashboard](https://chrome.google.com/webstore/devconsole), upload `band-tools-chrome-0.2.0.zip` (produced by `npm run package:chrome`) to create the listing. Note:
-   - **Extension ID** — visible in the URL when you open the listing, format `xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx` (32 chars).
-   - **Publisher ID** — on your account/profile page in the dashboard, numeric string.
-
-2. **Create a Google Cloud project.** https://console.cloud.google.com/ → top-left project dropdown → **New Project** → name it `band-tools` → **Create**. Make sure it's selected.
-
-3. **Enable the Chrome Web Store API.** Search bar → `Chrome Web Store API` → click the result → **Enable**.
-
-4. **Configure the OAuth consent screen.** Left sidebar → **APIs & Services** → **OAuth consent screen**:
-   - User type: **External** → **Create**
-   - App name: `Band Tools`, support email and developer contact email: your gmail
-   - Click through Scopes and Test users with **Save and Continue** (no additions needed)
-   - On the consent screen page, click **Publish App** to avoid 7-day refresh-token expiry. (If you leave it in Testing mode, you must add your own email as a test user AND refresh tokens expire after 7 days, so the deploy will eventually break.)
-
-5. **Create OAuth credentials.** Left sidebar → **Credentials** → **+ Create Credentials** → **OAuth client ID**:
-   - Application type: **Web application**
-   - Name: `band-tools-deploy`
-   - **Authorized redirect URIs** → **+ Add URI** → `https://developers.google.com/oauthplayground` (must be exact, including protocol)
-   - **Create** → copy the **Client ID** and **Client Secret** from the modal.
-
-6. **Get a refresh token.** Go to https://developers.google.com/oauthplayground:
-   - Click the **gear icon** (top right) → check **Use your own OAuth credentials** → paste the Client ID and Client Secret from step 5
-   - In the left panel, find **Chrome Web Store API v1** and check the scope `https://www.googleapis.com/auth/chromewebstore` (or paste that URL into the "Input your own scope" field if it's not listed)
-   - Click **Authorize APIs** → sign in with the Google account that owns the CWS listing → grant permission
-   - Back in the Playground, click **Exchange authorization code for tokens**
-   - Copy the **`refresh_token`** value (long string starting with `1//`)
-
-7. **Set GitHub secrets** (see [the secrets table](#github-secrets-to-set)).
+**Chrome Web Store** (see [Google's docs](https://developer.chrome.com/docs/webstore/one_time_payment)):
+1. Upload `band-tools-chrome-<version>.zip` manually from the [Developer Dashboard](https://chrome.google.com/webstore/devconsole) to create the listing. Note the **Extension ID** and your **Publisher ID** from the dashboard.
+2. Create a Google Cloud project, enable the Chrome Web Store API, and create OAuth 2.0 credentials. Do a one-time token exchange for a `refresh_token` (the `chrome-webstore-upload-cli` README has a script).
 
 **Firefox Add-ons** (AMO):
 1. Submit the extension manually once — AMO requires human review for new listings. Once approved, subsequent updates can go via API.
