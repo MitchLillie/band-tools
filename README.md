@@ -99,8 +99,10 @@ always have a local copy.
 | `AMO_JWT_ISSUER` | AMO API key (JWT issuer) |
 | `AMO_JWT_SECRET` | AMO API secret (JWT secret) |
 
-The gecko ID is hardcoded in `build.js` (`mlillie87@gmail.com`). Changing it
-after publishing to AMO creates a new listing, so don't.
+The gecko ID is a UUID hardcoded in `build.js` (`{69a8857f-eb56-426b-988d-0ae2f75a832c}`).
+UUID form avoids the spam/privacy risk that comes with putting a real email
+address in the manifest. Changing it after publishing to AMO creates a new
+listing, so don't.
 
 ### Manual run
 
