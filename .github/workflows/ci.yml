@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
@@ -19,3 +20,63 @@ jobs:
       - run: npm test
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test e2e/extension.spec.js
+
+  deploy-chrome:
+    name: Publish to Chrome Web Store
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run package:chrome
+      - name: Upload and publish to Chrome Web Store
+        env:
+          # chrome-webstore-upload-cli v4 reads these four env vars natively
+          # (the --client-id/--client-secret/--refresh-token flags were removed).
+          CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+          PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
+          EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+        run: |
+          VERSION=$(node -p "require('./manifest.json').version")
+          npx chrome-webstore-upload publish \
+            --source "band-tools-chrome-${VERSION}.zip" \
+            --extension-id "$EXTENSION_ID"
+
+  deploy-firefox:
+    name: Sign and publish to AMO
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Sign via AMO API
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          npx web-ext sign \
+            --source-dir dist/firefox \
+            --artifacts-dir dist/firefox-signed \
+            --upload-source \
+            --api-key "$AMO_JWT_ISSUER" \
+            --api-secret "$AMO_JWT_SECRET"
+      - name: Upload signed .xpi as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firefox-signed
+          path: dist/firefox-signed/
+          if-no-files-found: error
