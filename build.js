@@ -35,7 +35,7 @@ const firefoxManifest = {
   background: { scripts: ["background.js"] },
   browser_specific_settings: {
     gecko: {
-      id: "{69a8857f-eb56-426b-988d-0ae2f75a832c}",
+      id: "band-tools@band-tools",
       strict_min_version: "140.0",
       data_collection_permissions: {
         required: ["none"],
