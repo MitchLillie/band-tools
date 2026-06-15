@@ -1,0 +1,10 @@
+{
+  "packageName": "band-tools",
+  "releaseType": "node",
+  "extra-files": [
+    {
+      "path": "manifest.json",
+      "type": "json"
+    }
+  ]
+}
