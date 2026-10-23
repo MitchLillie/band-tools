@@ -1,4 +1,4 @@
-import { BandClient, stripForCreate } from "bandstand/browser";
+import { BandClient, isJwtSession, stripForCreate } from "bandstand/browser";
 
 // Mark load-unpacked dev builds with a "DEV" toolbar badge so they're easy to
 // tell apart from a Web Store install. installType is "development" for unpacked
@@ -12,7 +12,7 @@ Promise.resolve(chrome.management?.getSelf?.())
   })
   .catch(() => {});
 
-async function readSecretKey() {
+async function readSession() {
   const [bsAll, sessionAll, skAll] = await Promise.all([
     chrome.cookies.getAll({ name: "band_session" }),
     chrome.cookies.getAll({ name: "SESSION" }),
@@ -24,15 +24,26 @@ async function readSecretKey() {
   const sk = skAll.find((c) => c.domain.includes("band.us"));
   if (!session) throw new Error("Not logged in — visit band.us first.");
   if (!sk) throw new Error("secretKey cookie missing — visit band.us first.");
-  return sk.value.replace(/"/g, "");
+  return { secretKey: sk.value.replace(/"/g, ""), session: session.value };
+}
+
+async function readSecretKey() {
+  return (await readSession()).secretKey;
 }
 
 let clientPromise = null;
 function getClient() {
   if (!clientPromise) {
     clientPromise = (async () => {
-      const secretKey = await readSecretKey();
-      return BandClient.create({ cookies: { secretKey }, sendCookieHeader: false, credentials: "include" });
+      const { secretKey, session } = await readSession();
+      // JWT sessions sign with the base64url-decoded secretKey; tell bandstand which
+      // kind this is, since band_session never enters its jar in browser mode.
+      return BandClient.create({
+        cookies: { secretKey },
+        sendCookieHeader: false,
+        credentials: "include",
+        jwtSession: isJwtSession({ band_session: session }),
+      });
     })().catch((err) => {
       clientPromise = null;
       throw err;
