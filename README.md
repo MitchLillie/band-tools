@@ -10,7 +10,9 @@ A Chrome extension for [band.us](https://band.us) groups. Adds three features th
 
 ## Installation
 
-### From the Chrome Web Store *(coming soon)*
+### From the Chrome Web Store
+
+<https://chromewebstore.google.com/detail/band-tools/iagofipjlicpojpompdahgbnmfglgioo>
 
 ### From Firefox Add-ons
 
