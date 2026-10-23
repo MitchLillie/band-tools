@@ -1,0 +1,92 @@
+name: Release
+
+# Pushes to main update release-please's release PR. Merging that PR creates the
+# tag + GitHub Release, and the deploy jobs below publish to both stores.
+#
+# The deploys live here rather than in a tag-triggered workflow on purpose: tags
+# that release-please creates with GITHUB_TOKEN don't trigger other workflows.
+#
+# "Run workflow" (workflow_dispatch) publishes the version currently on main —
+# for back-fills, or a release cut before this workflow existed.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: .github/release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  deploy-chrome:
+    name: Publish to Chrome Web Store
+    runs-on: ubuntu-latest
+    needs: release-please
+    if: github.event_name == 'workflow_dispatch' || needs.release-please.outputs.release_created == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: npm run package:chrome
+      - name: Upload and publish to Chrome Web Store
+        env:
+          CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+          PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
+          EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+        # No subcommand = upload, then publish. (`publish` alone only publishes
+        # whatever was uploaded last.)
+        run: |
+          VERSION=$(node -p "require('./manifest.json').version")
+          npx chrome-webstore-upload --source "band-tools-chrome-${VERSION}.zip"
+
+  deploy-firefox:
+    name: Submit to AMO
+    runs-on: ubuntu-latest
+    needs: release-please
+    if: github.event_name == 'workflow_dispatch' || needs.release-please.outputs.release_created == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      # background.js is an esbuild bundle, so AMO reviewers need the source.
+      - run: git archive --format=zip -o source.zip HEAD
+      - name: Submit listed version via AMO API
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        # Listed versions are signed and distributed by AMO after review, so
+        # don't wait around for approval.
+        run: |
+          npx web-ext sign \
+            --source-dir dist/firefox \
+            --channel listed \
+            --upload-source-code source.zip \
+            --approval-timeout 0 \
+            --api-key "$AMO_JWT_ISSUER" \
+            --api-secret "$AMO_JWT_SECRET"
