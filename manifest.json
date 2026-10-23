@@ -1,9 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Band Tools",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "View upcoming events, track RSVPs, and sync group members for your band.us group.",
-  "permissions": ["cookies", "tabs", "storage", "activeTab"],
+  "permissions": [
+    "cookies",
+    "tabs",
+    "storage",
+    "activeTab"
+  ],
   "host_permissions": [
     "https://*.band.us/*"
   ],
@@ -27,8 +32,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.band.us/*"],
-      "js": ["content.js"],
+      "matches": [
+        "https://www.band.us/*"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ]
