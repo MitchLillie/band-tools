@@ -1,6 +1,6 @@
 {
   "name": "band-tools",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Chrome extension for band.us groups.",
   "type": "module",
@@ -15,7 +15,7 @@
     "firefox:lint": "web-ext lint --source-dir dist/firefox"
   },
   "dependencies": {
-    "bandstand": "^0.2.2"
+    "bandstand": "^0.2.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.1",
