@@ -12,9 +12,11 @@ A Chrome extension for [band.us](https://band.us) groups. Adds three features th
 
 ### From the Chrome Web Store *(coming soon)*
 
-### From Firefox Add-ons *(coming soon)*
+### From Firefox Add-ons
 
-Both stores are published automatically on every merge to `main` via the `deploy-chrome` and `deploy-firefox` jobs in `.github/workflows/ci.yml`, gated on the `test` job passing. The same jobs are triggerable manually with `workflow_dispatch`. See [Auto-deploy](#auto-deploy) for the secrets you need to configure once.
+<https://addons.mozilla.org/firefox/addon/band-tools/>
+
+Releases are published to both stores automatically when a release-please release PR is merged — see [Auto-deploy](#auto-deploy).
 
 ### Load unpacked (developer mode)
 1. Clone this repo, then `npm install && npm run build`
@@ -72,10 +74,22 @@ band-tools/
 
 ## Auto-deploy
 
-Pushing to `main` runs `ci.yml` first; if the `test` job passes, the
-`deploy-chrome` and `deploy-firefox` jobs then publish to both stores. The
-Firefox job also uploads the signed `.xpi` as a workflow artifact so you
-always have a local copy.
+Releases are driven by [release-please](https://github.com/googleapis/release-please)
+(`.github/workflows/release-please.yml`):
+
+1. Merge PRs to `main` with [Conventional Commit](https://www.conventionalcommits.org/)
+   titles (`fix: …`, `feat: …`). release-please keeps a release PR open that bumps
+   `package.json` + `manifest.json` and updates `CHANGELOG.md`.
+2. Merge the release PR. That tags `vX.Y.Z`, creates a GitHub Release, and the
+   `deploy-chrome` / `deploy-firefox` jobs in the same workflow publish to both
+   stores. (They live in that workflow because tags created with `GITHUB_TOKEN`
+   don't trigger other workflows.)
+
+Ordinary merges to `main` only run `ci.yml` tests; they don't deploy.
+
+Firefox versions are submitted to the listed channel with a source archive
+(`git archive` of the tagged commit), since `background.js` is bundled; AMO signs
+and distributes them after review.
 
 ### One-time setup
 
@@ -100,13 +114,15 @@ always have a local copy.
 | `AMO_JWT_SECRET` | AMO API secret (JWT secret) |
 
 The gecko ID is hardcoded in `build.js` (`band-tools@band-tools`) and matches
-what's currently in the pending AMO submission. Changing it after publishing
+the live AMO listing. Changing it after publishing
 to AMO creates a new listing, so don't.
 
 ### Manual run
 
-Use the **Run workflow** button on the Actions tab to publish without waiting
-for a push (useful for back-fills or hot-fixes).
+**Actions → Release → Run workflow** publishes the version currently on `main` to
+both stores without cutting a new release (back-fills, or a retry after a failed
+deploy). Bump the version first — both stores reject re-uploads of a published
+version.
 
 ## License
 MIT
