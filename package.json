@@ -1,6 +1,6 @@
 {
   "name": "band-tools",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "Chrome extension for band.us groups.",
   "type": "module",
