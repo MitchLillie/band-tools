@@ -24,7 +24,8 @@ beforeAll(async () => {
           ? [{ domain: ".band.us", value: JWT_SESSION }]
           : [],
   };
-  chrome.storage = { local: { set: async () => {} }, session: { set: async () => {} } };
+  const area = () => ({ get: async () => ({}), set: async () => {}, remove: async () => {} });
+  chrome.storage = { local: area(), session: area() };
   globalThis.fetch = async (url, init) => {
     lastRequest = { url: String(url), headers: new Headers(init?.headers) };
     return new Response(JSON.stringify({ result_code: 1, result_data: { internal_calendars: [] } }), {
