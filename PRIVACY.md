@@ -18,15 +18,16 @@ Band Tools is a browser extension that helps you manage your band.us group. This
 - We do not track usage or analytics
 - We do not share any information with third parties
 - We do not access cookies or data from any site other than band.us
+- We never send anything to `127.0.0.1` unless you click **Send BAND session to bandstand** in the popup
 
 ## Where data goes
 
-All data stays between your browser and the Band API (`api-usw.band.us`). Settings (your default band number, calendar, and group preferences) are stored locally in Chrome's sync storage and synced only to your own Chrome profile.
+All data stays between your browser and the Band API (`api-usw.band.us`). The one exception is opt-in, per click: when the active tab is the page opened by the `bandstand` command-line tool (`bandstand login`), clicking **Send BAND session to bandstand** in the popup sends your `band_session` and `secretKey` cookies to that tool's listener on `127.0.0.1` (your own computer, never a remote server). Settings (your default band number, calendar, and group preferences) are stored locally in Chrome's sync storage and synced only to your own Chrome profile.
 
 ## Permissions justification
 
 - **cookies** — required to read the `secretKey` cookie used to sign API requests (Band's authentication mechanism)
-- **tabs** — required to read the current tab URL to auto-detect your band number
+- **tabs** — required to read the current tab URL to auto-detect your band number, and to recognize the `bandstand login` page
 - **storage** — required to save your settings and cache event lists locally
 - **activeTab** — required to auto-fill the RSVP input when you're viewing an event page
 - **https://*.band.us/*** — required to call the Band API and read authentication cookies

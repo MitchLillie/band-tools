@@ -16,7 +16,7 @@
     "package:chrome": "node scripts/package-chrome.js"
   },
   "dependencies": {
-    "bandstand": "^0.2.3"
+    "bandstand": "^0.3.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.1",

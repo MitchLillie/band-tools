@@ -108,6 +108,17 @@ body {
 }
 #auth-error a { color: var(--no); font-weight: 600; }
 
+#cli-pair {
+  padding: 11px 15px;
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+}
+#cli-pair p { margin: 0 0 8px; }
+#cli-pair #cli-pair-msg { margin: 8px 0 0; }
+#cli-pair .ok { color: var(--go); font-weight: 600; }
+#cli-pair .err { color: var(--no); }
+
 /* ---------- Tabs — segmented control on the dark header ---------- */
 
 nav#tabs {
@@ -168,7 +179,7 @@ nav#tabs {
   margin: 0 2px;
 }
 
-#week-copy {
+#week-copy, #week-refresh {
   background: #eef0f3;
   color: var(--ink-2);
   padding: 5px 9px;
@@ -176,7 +187,8 @@ nav#tabs {
   line-height: 1;
   border-radius: var(--radius-sm);
 }
-#week-copy:hover { background: #e2e5ea; box-shadow: none; }
+#week-copy:hover, #week-refresh:hover { background: #e2e5ea; box-shadow: none; }
+#week-refresh:disabled { opacity: 0.5; cursor: progress; }
 #week-copy.copied { background: var(--go-bg); color: var(--go); }
 
 /* ---------- Form controls ---------- */

@@ -1,6 +1,9 @@
 'use strict';
 
+// The week list renders straight from week_cache when it's younger than
+// WEEK_CACHE_MAX_AGE_MS; past WEEK_CACHE_TTL_MS it's also refetched in the background.
 const WEEK_CACHE_TTL_MS = 5 * 60 * 1000;
+const WEEK_CACHE_MAX_AGE_MS = 60 * 60 * 1000;
 
 // ---- Messaging ----
 
@@ -98,7 +101,39 @@ function applyAdminVisibility(isAdmin) {
   document.querySelectorAll('.admin-only').forEach(el => (isAdmin ? show : hide)(el));
 }
 
+// `bandstand login` opens a page on 127.0.0.1; on that tab, offer the hand-off.
+async function initCliPair() {
+  let tab;
+  try {
+    [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id || !(await send({ type: 'pair_target', tab_id: tab.id }))) return;
+  } catch (_) { return; }
+
+  const panel = document.getElementById('cli-pair');
+  const btn = document.getElementById('cli-pair-send');
+  const msg = document.getElementById('cli-pair-msg');
+  show(panel);
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    msg.className = '';
+    msg.textContent = 'Sending…';
+    try {
+      const { trusted } = await send({ type: 'pair_send', tab_id: tab.id });
+      btn.textContent = 'Sent ✓';
+      msg.className = 'ok';
+      msg.textContent = trusted
+        ? 'Done — check your terminal.'
+        : 'Sent — confirm the fingerprint in your terminal.';
+    } catch (err) {
+      btn.disabled = false;
+      msg.className = 'err';
+      msg.textContent = `✗ ${err.message}`;
+    }
+  });
+}
+
 async function init() {
+  initCliPair();
   try {
     await send({ type: 'check_auth' });
     hide(document.getElementById('auth-error'));
@@ -109,16 +144,6 @@ async function init() {
 
   const settings = await loadSettings();
   currentBandNo = Number(await detectBandNo() || settings.default_band || 0) || null;
-
-  let localMe = await new Promise(r => chrome.storage.local.get(['me_user_no', 'me_name'], r));
-  if (!localMe.me_user_no && currentBandNo) {
-    try {
-      const result = await send({ type: 'detect_me', band_no: currentBandNo });
-      if (result?.user_no) localMe = { me_user_no: result.user_no, me_name: result.name };
-    } catch (_) {}
-  }
-  currentMeUserNo = localMe.me_user_no || null;
-  currentMeName   = localMe.me_name   || null;
 
   document.getElementById('band-info').textContent = 'Band Tools';
   try {
@@ -137,22 +162,90 @@ async function init() {
     return;
   }
 
-  // Check admin and show Admin tab if applicable
-  let isAdmin = false;
+  await loadBandData({
+    weekCalendar: settings.default_calendar ? Number(settings.default_calendar) : null,
+    calendar: settings.default_calendar,
+    group: settings.default_group,
+  });
+}
+
+// Everything the popup shows for the current band, requested at once. Calendars,
+// groups, admin and who-am-I come from the background's cache (instant on repeat
+// opens; refreshed there in the background), and the week list from week_cache.
+async function loadBandData({ weekCalendar, calendar, syncCalendar = calendar, group, force = false }) {
+  const band_no = currentBandNo;
+  await Promise.all([
+    loadMe(band_no),
+    loadWeek(force, weekCalendar),
+    populateWeekCalendarDropdown(band_no, calendar),
+    send({ type: 'check_admin', band_no }).catch(() => false).then(isAdmin => {
+      currentIsAdmin = Boolean(isAdmin);
+      applyAdminVisibility(currentIsAdmin);
+      if (currentIsAdmin) return populateSyncDropdowns(band_no, syncCalendar, group);
+    }),
+  ]);
+}
+
+async function loadMe(band_no) {
+  let me = null;
   try {
-    isAdmin = await send({ type: 'check_admin', band_no: currentBandNo });
+    me = await send({ type: 'detect_me', band_no });
   } catch (_) {}
-
-  currentIsAdmin = isAdmin;
-  applyAdminVisibility(isAdmin);
-  if (isAdmin)
-    populateSyncDropdowns(currentBandNo, settings.default_calendar, settings.default_group);
-
-  await populateWeekCalendarDropdown(currentBandNo, settings.default_calendar);
-  loadWeek();
+  if (!me?.user_no) {
+    // Fall back to whatever we learned last time (e.g. no schedules of mine here).
+    const local = await new Promise(r => chrome.storage.local.get(['me_user_no', 'me_name'], r));
+    me = { user_no: local.me_user_no, name: local.me_name };
+  }
+  currentMeUserNo = me.user_no || null;
+  currentMeName = me.name || null;
 }
 
 init();
+
+// Background revalidation rewrites cached metadata; re-render if it actually changed.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !currentBandNo) return;
+  // Only revalidations (an old value existed): first fills are rendered by whoever asked.
+  const changed = name => {
+    const c = changes[`cache:${name}:${currentBandNo}`];
+    return Boolean(c?.newValue && c.oldValue) &&
+      JSON.stringify(c.newValue.data) !== JSON.stringify(c.oldValue.data);
+  };
+  if (changed('me')) {
+    const me = changes[`cache:me:${currentBandNo}`].newValue.data;
+    currentMeUserNo = me.user_no || null;
+    currentMeName = me.name || null;
+  }
+  if (changed('admin')) {
+    currentIsAdmin = Boolean(changes[`cache:admin:${currentBandNo}`].newValue.data);
+    applyAdminVisibility(currentIsAdmin);
+  }
+  if (changed('calendars'))
+    populateWeekCalendarDropdown(currentBandNo, document.getElementById('week-calendar').value);
+  if (currentIsAdmin && (changed('calendars') || changed('groups') || changed('admin')))
+    populateSyncDropdowns(currentBandNo,
+      document.getElementById('sync-calendar').value, document.getElementById('sync-group').value);
+});
+
+// Manual refresh: drop this band's cached metadata + week list, then reload it all.
+document.getElementById('week-refresh').addEventListener('click', async () => {
+  const btn = document.getElementById('week-refresh');
+  if (!currentBandNo || btn.disabled) return;
+  btn.disabled = true;
+  try {
+    await send({ type: 'invalidate_cache', band_no: currentBandNo });
+  } catch (_) {}
+  try {
+    await loadBandData({
+      calendar: document.getElementById('week-calendar').value,
+      syncCalendar: document.getElementById('sync-calendar').value,
+      group: document.getElementById('sync-group').value,
+      force: true,
+    });
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 // ---- Calendar dropdown ----
 
@@ -175,40 +268,52 @@ document.getElementById('week-calendar').addEventListener('change', () => loadWe
 // ---- Event list ----
 
 let weekItems = [];
+let weekLoadSeq = 0;
 
-async function loadWeek(forceRefresh = false) {
+// `calendarOverride` (number or null) is used before the dropdown is populated.
+async function loadWeek(forceRefresh = false, calendarOverride) {
   const resultsEl = document.getElementById('week-results');
   const days = Number(document.getElementById('week-days').value) || 7;
   const calVal = document.getElementById('week-calendar').value;
-  const calendar_id = calVal ? Number(calVal) : null;
+  const calendar_id = calendarOverride !== undefined ? calendarOverride : (calVal ? Number(calVal) : null);
 
   if (!currentBandNo) return;
+  const band_no = currentBandNo;
+  const seq = ++weekLoadSeq;
 
+  let shownFromCache = false;
   if (!forceRefresh) {
     try {
       const cached = await new Promise(r => chrome.storage.session.get('week_cache', r));
       if (cached.week_cache) {
-        const { ts, items, band_no, calendar_id: cachedCal, days: cachedDays } = cached.week_cache;
-        if (Date.now() - ts < WEEK_CACHE_TTL_MS &&
-            band_no === currentBandNo && cachedCal === calendar_id && cachedDays === days) {
+        const { ts, items, band_no: cachedBand, calendar_id: cachedCal, days: cachedDays } = cached.week_cache;
+        const age = Date.now() - ts;
+        if (age < WEEK_CACHE_MAX_AGE_MS &&
+            cachedBand === band_no && cachedCal === calendar_id && cachedDays === days) {
           await mergeRsvpCache(items);
+          if (seq !== weekLoadSeq) return;
           weekItems = items;
           renderWeek(resultsEl, items);
-          return;
+          if (age < WEEK_CACHE_TTL_MS) return;
+          shownFromCache = true; // stale: keep it on screen and refetch quietly
         }
       }
     } catch (_) {}
   }
 
-  setHtml(resultsEl, '<p class="msg">Loading…</p>');
+  if (!shownFromCache) setHtml(resultsEl, '<p class="msg">Loading…</p>');
   try {
-    const items = await send({ type: 'band_week', band_no: currentBandNo, days, calendar_id, me_name: currentMeName });
+    const items = await send({ type: 'band_week', band_no, days, calendar_id, me_name: currentMeName });
     // Merge any cached RSVP statuses we learned from previous expands this session
     await mergeRsvpCache(items);
+    if (seq !== weekLoadSeq) return; // a newer load (calendar/days change) superseded this one
+    chrome.storage.session.set({ week_cache: { ts: Date.now(), items, band_no, calendar_id, days } });
+    // Don't re-render an unchanged list (it would collapse any expanded details).
+    if (shownFromCache && JSON.stringify(items) === JSON.stringify(weekItems)) return;
     weekItems = items;
-    chrome.storage.session.set({ week_cache: { ts: Date.now(), items, band_no: currentBandNo, calendar_id, days } });
     renderWeek(resultsEl, items);
   } catch (err) {
+    if (seq !== weekLoadSeq || shownFromCache) return;
     setHtml(resultsEl, `<p class="err">${escHtml(err.message)}</p>`);
   }
 }

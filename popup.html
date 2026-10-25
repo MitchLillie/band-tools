@@ -17,6 +17,13 @@
       </div>
     </div>
 
+    <!-- Shown only when the active tab is the page `bandstand login` opened. -->
+    <div id="cli-pair" class="hidden">
+      <p>bandstand is waiting for a BAND session from this browser.</p>
+      <button id="cli-pair-send">Send BAND session to bandstand</button>
+      <p id="cli-pair-msg" class="hidden"></p>
+    </div>
+
     <div id="auth-error" class="hidden">
       <p>Not logged in. <a href="https://www.band.us" target="_blank">Log in to band.us</a> first.</p>
     </div>
@@ -34,6 +41,7 @@
         <p class="tab-desc">Next <input type="number" id="week-days" value="7" min="1" max="365"> days</p>
         <div class="top-bar-right">
           <select id="week-calendar"><option value="">All calendars</option></select>
+          <button id="week-refresh" title="Refresh calendars, groups and events">↻</button>
           <button id="week-copy" title="Copy as text">⎘</button>
         </div>
       </div>

@@ -1,12 +1,13 @@
 # Band Tools
 
-A Chrome extension for [band.us](https://band.us) groups. Adds three features the web app doesn't surface directly:
+A Chrome extension for [band.us](https://band.us) groups. Adds these features the web app doesn't surface directly:
 
 | Feature | What it does |
 |---------|-------------|
 | **My Events** | Lists upcoming events across a configurable date window, with a one-click copy for sharing as plain text |
 | **RSVP** | Shows exactly who has and hasn't responded to a private event |
 | **Sync Group** | Adds newly-joined group members as sharers on upcoming private events (dry-run first, then apply) |
+| **CLI login** | Signs in the [`bandstand`](https://github.com/MitchLillie/bandstand) CLI: run `bandstand login`, then on the page it opens click the Band Tools icon → **Send BAND session to bandstand** |
 
 ## Installation
 
@@ -34,13 +35,13 @@ Releases are published to both stores automatically when a release-please releas
 
 ## Permissions
 - **cookies** — reads `secretKey` to sign API requests (Band's auth mechanism)
-- **tabs** — reads the current tab URL to auto-detect your band number
-- **storage** — saves your settings and caches event lists
+- **tabs** — reads the current tab URL to auto-detect your band number and recognize the `bandstand login` page
+- **storage** — saves your settings and caches event lists, calendars, groups and your user ID (refreshed hourly, or with the ↻ button)
 - **activeTab** — auto-fills RSVP input when viewing an event page
 - **https://*.band.us/*** — makes API calls to `api-usw.band.us` and reads cookies
 
 ## Privacy
-See [PRIVACY.md](PRIVACY.md). No data leaves your browser except to the Band API.
+See [PRIVACY.md](PRIVACY.md). No data leaves your browser except to the Band API, and (only when you click the CLI-login button) to the `bandstand` CLI listening on `127.0.0.1` on your own machine.
 
 ## Development
 

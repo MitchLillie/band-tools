@@ -1,4 +1,29 @@
-import { BandClient, isJwtSession, stripForCreate } from "bandstand/browser";
+import * as bandstand from "bandstand/browser";
+import { cacheKey, createCache } from "./cache.js";
+
+const { BandClient, isJwtSession, stripForCreate } = bandstand;
+
+// Independent reads run concurrently (per-event details 3 at a time) — but only
+// when the bundled bandstand has its pacing gate (shipped alongside mapLimit),
+// which still spaces request starts. An older client would let concurrent calls
+// go out unpaced, so fall back to one-at-a-time there.
+const DETAIL_CONCURRENCY = 3;
+const hasPacer = typeof bandstand.mapLimit === "function";
+
+async function mapLimit(items, fn) {
+  if (hasPacer) return bandstand.mapLimit(items, DETAIL_CONCURRENCY, fn);
+  const out = [];
+  for (const [i, item] of items.entries()) out.push(await fn(item, i));
+  return out;
+}
+
+async function both(a, b) {
+  return hasPacer ? Promise.all([a(), b()]) : [await a(), await b()];
+}
+
+// Calendars, member groups and who-am-I barely change: cache them (1h TTL,
+// background refresh after 10 min) so the popup and content script open instantly.
+const metaCache = createCache({ storage: chrome.storage.local });
 
 // Mark load-unpacked dev builds with a "DEV" toolbar badge so they're easy to
 // tell apart from a Web Store install. installType is "development" for unpacked
@@ -27,15 +52,87 @@ async function readSession() {
   return { secretKey: sk.value.replace(/"/g, ""), session: session.value };
 }
 
+const isBandCookie = (c) => c.domain === "band.us" || c.domain.endsWith(".band.us");
+
+/**
+ * The page `bandstand login` opens: http://127.0.0.1:<port>/#pair=<nonce>. Returns
+ * the listener's origin and the one-time nonce (null if the fragment is missing,
+ * e.g. the URL was retyped — the CLI then asks for confirmation), or null for any
+ * other URL.
+ */
+export function parsePairUrl(raw) {
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || !url.port || url.pathname !== "/") {
+    return null;
+  }
+  const nonce = /^#pair=([0-9a-f]{32})$/.exec(url.hash)?.[1] ?? null;
+  return { origin: url.origin, nonce };
+}
+
+/**
+ * Only the extension's own pages (the popup) may trigger a hand-off — never a
+ * content script, which runs inside band.us pages.
+ */
+function isExtensionPage(sender) {
+  // Content scripts report the web page's URL, so an extension URL means one of ours.
+  return sender?.id === chrome.runtime.id && String(sender.url).startsWith(chrome.runtime.getURL(""));
+}
+
+async function pairTarget(tabId) {
+  const tab = await chrome.tabs.get(tabId);
+  return parsePairUrl(tab?.url ?? "");
+}
+
+/**
+ * Hand this browser's BAND session to `bandstand login`, which is listening on the
+ * tab's 127.0.0.1 origin. The tab URL is read here, not taken from the popup.
+ */
+async function sendToCli(tabId) {
+  const target = await pairTarget(tabId);
+  if (!target) throw new Error("Open the page `bandstand login` opened, then try again.");
+  const [bsAll, skAll] = await Promise.all([
+    chrome.cookies.getAll({ name: "band_session" }),
+    chrome.cookies.getAll({ name: "secretKey" }),
+  ]);
+  const bs = bsAll.find(isBandCookie);
+  const sk = skAll.find(isBandCookie);
+  if (!bs) throw new Error("Not logged in — visit band.us first.");
+  if (!sk) throw new Error("secretKey cookie missing — visit band.us first.");
+  let res;
+  try {
+    res = await fetch(`${target.origin}/session`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        band_session: bs.value,
+        secretKey: sk.value.replace(/"/g, ""),
+        nonce: target.nonce ?? undefined,
+        via: "extension",
+      }),
+    });
+  } catch {
+    throw new Error("bandstand isn't listening — is `bandstand login` still running?");
+  }
+  if (!res.ok) throw new Error(`bandstand replied ${res.status}`);
+  return { trusted: Boolean(target.nonce) };
+}
+
 async function readSecretKey() {
   return (await readSession()).secretKey;
 }
 
 let clientPromise = null;
+let clientSecretKey = null;
 function getClient() {
   if (!clientPromise) {
     clientPromise = (async () => {
       const { secretKey, session } = await readSession();
+      clientSecretKey = secretKey;
       // JWT sessions sign with the base64url-decoded secretKey; tell bandstand which
       // kind this is, since band_session never enters its jar in browser mode.
       return BandClient.create({
@@ -52,11 +149,35 @@ function getClient() {
   return clientPromise;
 }
 
-async function getCalendars(band_no) {
-  return (await getClient()).getCalendars(band_no);
+// A new secretKey means a new login (possibly another account): drop the client
+// and everything cached under the old identity.
+chrome.cookies.onChanged?.addListener(({ cookie, removed, cause }) => {
+  if (cookie.name !== "secretKey" || !cookie.domain.includes("band.us")) return;
+  if (removed && cause === "overwrite") return; // the matching add follows
+  if (!removed && clientSecretKey !== null && cookie.value.replace(/"/g, "") === clientSecretKey) return;
+  clientPromise = null;
+  clientSecretKey = null;
+  invalidateCaches().catch(() => {});
+});
+
+async function invalidateCaches(band_no = null) {
+  await metaCache.invalidate(band_no);
+  await chrome.storage.session?.remove?.(["week_cache", "rsvp_status_cache"]);
 }
-async function getMemberGroups(band_no) {
-  return (await getClient()).getMemberGroups(band_no);
+
+async function getCalendars(band_no, fresh = false) {
+  return metaCache.get(
+    cacheKey("calendars", band_no),
+    async () => (await getClient()).getCalendars(band_no),
+    { fresh },
+  );
+}
+async function getMemberGroups(band_no, fresh = false) {
+  return metaCache.get(
+    cacheKey("groups", band_no),
+    async () => (await getClient()).getMemberGroups(band_no),
+    { fresh },
+  );
 }
 async function getGroupMembers(band_no, group_id) {
   return (await getClient()).getGroupMembers(band_no, group_id);
@@ -171,7 +292,11 @@ async function rsvpStatus(band_no, schedule_id, me_name = null) {
 }
 
 async function syncGroupPlan(band_no, calendar_id, group_id, days, me_user_no) {
-  const groupData = await getGroupMembers(band_no, group_id);
+  // Roster and event list are independent — fetch them together.
+  const [groupData, data] = await both(
+    () => getGroupMembers(band_no, group_id),
+    () => getSchedules(band_no, today(), addDays(days), [{ is_default: false, calendar_id }]),
+  );
   const groupMembers = {};
   for (const m of groupData.members || groupData.items || []) {
     if (m.user_no && m.user_no !== me_user_no) groupMembers[m.user_no] = m.name || `User ${m.user_no}`;
@@ -179,16 +304,15 @@ async function syncGroupPlan(band_no, calendar_id, group_id, days, me_user_no) {
   const gids = new Set(Object.keys(groupMembers).map(Number));
   if (!gids.size) throw new Error(`Group ${group_id} has no members (or wrong ID).`);
 
-  const data = await getSchedules(band_no, today(), addDays(days), [{ is_default: false, calendar_id }]);
   const seen = new Map();
   for (const ev of data.items || []) {
     const parts = (ev.schedule_id || "").split("/");
     if (parts.length >= 3) seen.set(parts[2], ev);
   }
 
+  const fulls = await mapLimit([...seen.values()], (preview) => getSchedule(band_no, preview.schedule_id));
   const updates = [];
-  for (const [, preview] of seen) {
-    const full = await getSchedule(band_no, preview.schedule_id);
+  for (const full of fulls) {
     const sched = full.schedule || full;
     if (!sched.is_secret) continue;
     const sharers = new Set((sched.secret_sharers || []).map((s) => s.user_no).filter(Boolean));
@@ -228,10 +352,25 @@ async function syncGroupApply(band_no, calendar_id, group_id, days = 120, me_use
   return { applied_count: applied.length, applied };
 }
 
-async function checkIsAdmin(band_no) {
+const AUTH_ERROR_RE = /auth|login|session|secretkey|not logged in/i;
+
+// Only band admins can list member groups. Cache the verdict either way, except
+// when the failure was auth (re-login should be able to flip it).
+async function checkIsAdmin(band_no, fresh = false) {
   try {
-    await getMemberGroups(band_no);
-    return true;
+    return await metaCache.get(
+      cacheKey("admin", band_no),
+      async () => {
+        try {
+          await getMemberGroups(band_no, fresh);
+          return true;
+        } catch (err) {
+          if (AUTH_ERROR_RE.test(err.message)) throw err;
+          return false;
+        }
+      },
+      { fresh },
+    );
   } catch {
     return false;
   }
@@ -246,21 +385,28 @@ async function updateMyRsvp(band_no, schedule_id, rsvp_type, me_user_no) {
   return (await getClient()).setRsvp(band_no, schedule_id, rsvp_state, me_user_no);
 }
 
-async function detectMe(band_no) {
+// Display names are per band, so who-am-I is cached per band.
+async function detectMe(band_no, fresh = false) {
   try {
-    const data = await getMyBandSchedules(band_no);
-    const items = data.items || data.schedules || [];
-    const user_no = items[0]?.owner?.user_no;
-    const name = items[0]?.owner?.name || "";
-    if (user_no) {
-      await chrome.storage.local.set({ me_user_no: user_no, me_name: name });
-      return { user_no, name };
-    }
+    const me = await metaCache.get(
+      cacheKey("me", band_no),
+      async () => {
+        const data = await getMyBandSchedules(band_no);
+        const items = data.items || data.schedules || [];
+        const user_no = items[0]?.owner?.user_no;
+        if (!user_no) throw new Error("no schedules of mine on this band");
+        return { user_no, name: items[0]?.owner?.name || "" };
+      },
+      { fresh },
+    );
+    // Kept for the content script, which reads me_user_no directly.
+    await chrome.storage.local.set({ me_user_no: me.user_no, me_name: me.name });
+    return me;
   } catch {}
   return null;
 }
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const dispatch = async () => {
     switch (msg.type) {
       case "band_week":
@@ -272,17 +418,24 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case "sync_group_apply":
         return syncGroupApply(msg.band_no, msg.calendar_id, msg.group_id, msg.days, msg.me_user_no, msg.notify);
       case "get_calendars":
-        return getCalendars(msg.band_no);
+        return getCalendars(msg.band_no, msg.fresh);
       case "get_member_groups":
-        return getMemberGroups(msg.band_no);
+        return getMemberGroups(msg.band_no, msg.fresh);
       case "check_auth":
         return readSecretKey();
+      case "pair_target":
+      case "pair_send":
+        if (!isExtensionPage(sender)) throw new Error("only available to the Band Tools popup");
+        return msg.type === "pair_target" ? pairTarget(msg.tab_id) : sendToCli(msg.tab_id);
       case "check_admin":
-        return checkIsAdmin(msg.band_no);
+        return checkIsAdmin(msg.band_no, msg.fresh);
       case "update_rsvp":
         return updateMyRsvp(msg.band_no, msg.schedule_id, msg.rsvp_type, msg.me_user_no);
       case "detect_me":
-        return detectMe(msg.band_no);
+        return detectMe(msg.band_no, msg.fresh);
+      case "invalidate_cache":
+        await invalidateCaches(msg.band_no ?? null);
+        return true;
       case "band_no_detected":
         chrome.storage.session.set({ detected_band_no: msg.value });
         return null;
@@ -328,7 +481,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   dispatch()
     .then((result) => sendResponse({ ok: true, result }))
     .catch((err) => {
-      if (/auth|login|session|secretkey|not logged in/i.test(err.message)) clientPromise = null;
+      if (AUTH_ERROR_RE.test(err.message)) clientPromise = null;
       sendResponse({ ok: false, error: err.message });
     });
   return true;
